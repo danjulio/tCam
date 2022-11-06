@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created with EazyDraw for Mac ( https://www.eazydraw.com/ ) -->
+
+<svg
+    version="1.1"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:cc="http://creativecommons.org/ns#"
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns="http://www.w3.org/2000/svg"
+    width="342.35"
+    height="234.35"
+    viewBox="0, 0, 342.35, 234.35"
+    preserveAspectRatio="none"
+    id="svg2">
+   <defs
+       id="defs_B9044296"/>
+   <metadata
+       id="metadata7">
+      <rdf:RDF>
+         <cc:Work
+             rdf:about="">
+            <dc:format>image/svg+xml</dc:format>
+            <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+            <dc:title></dc:title>
+         </cc:Work>
+      </rdf:RDF>
+   </metadata>
+   <g
+       id="layer_Paper"
+       style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-opacity:1;fill-rule:nonzero;stroke-linecap:square;stroke-linejoin:miter;stroke-width:1;stroke-miterlimit:10">
+      <rect
+          style="fill:none;stroke:#FF0000;stroke-width:0.25"
+          id="11A4ED34"
+          x="24.4462"
+          y="40.639"
+          width="242.3592"
+          height="161.568"/>
+      <path
+          id="2EB42AA4_join"
+          style="fill:none;stroke:#FF0000;stroke-width:0.25"
+          d="M9.175,0.175 L333.175,0.175 M0.175,9.175 L0.175,225.175 M9.175,234.175 L333.175,234.175 M342.175,9.175 L342.175,225.175 M9.175000000003,0.175 C4.204437251526,0.174999999999 0.175000000002,4.20443725152 0.175,9.174999999997
+C0.175,9.174999999997 0.175,9.174999999998 0.175,9.174999999998 M9.175000000188,234.175 C4.204437251711,234.175 0.175000000104,230.145562749 0.175,225.175 C0.175,225.175 0.175,225.175 0.175,225.175 M333.175,0.175
+C338.145562748,0.174999999997 342.175,4.204437251517 342.175,9.174999999994 C342.175,9.174999999994 342.175,9.175 342.175,9.175 M333.158398438,234.169140625 C338.128961186,234.169140625 342.158398438,230.139703373 342.158398438,225.169140625
+C342.158398438,225.169140625 342.158398438,225.169140625 342.158398438,225.169140625"/>
+      <circle
+          style="fill:none;stroke:#FF0000;stroke-width:0.25"
+          id="73A733B4"
+          cx="9.175"
+          cy="225.175"
+          r="4.5"/>
+      <circle
+          style="fill:none;stroke:#FF0000;stroke-width:0.25"
+          id="5A2114B4"
+          cx="9.175"
+          cy="9.175"
+          r="4.464"/>
+      <circle
+          style="fill:none;stroke:#FF0000;stroke-width:0.25"
+          id="C23374B4"
+          cx="324.175"
+          cy="219.775"
+          r="4.464"/>
+      <circle
+          style="fill:none;stroke:#FF0000;stroke-width:0.25"
+          id="6CDEF4B4"
+          cx="324.175"
+          cy="14.575"
+          r="4.464"/>
+   </g>
+</svg>
