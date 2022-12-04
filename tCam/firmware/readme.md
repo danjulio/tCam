@@ -42,9 +42,9 @@ The camera currently supports the following commands.  They are a superset of th
 | [take_picture](#take_picture)* | Command the camera to take a picture and store it on the local Micro-SD card. |
 | [record_on](#record_on)* | Command the camera to start recording and storing the video on the local Micro-SD card. |
 | [record_off](#record_off)* | Command the camera to stop recording a video. |
-| [get\_filesystem_list](#get_filesystem_list)* | |
-| [get_file](#get_file)* | |
-| [delete\_filesystem_obj](#delete_filesystem_obj)* | |
+| [get\_filesystem_list](#get_filesystem_list)* | Get a list of directories or a list of files in a directory. |
+| [get_file](#get_file)* | Get a .tjsn or .tmjsn file. |
+| [delete\_filesystem_obj](#delete_filesystem_obj)* | Delete a directory or file. |
 | [poweroff](#poweroff)* | Command the camera to turn off. |
 | [fw\_update_request](#fw_update_request) | Informs the camera of a OTA FW update size and revision and starts it blinking the LED alternating between red and green to signal to the user a OTA FW update has been requested. |
 | [fw_segment](#fw_segment) | Sends a sequential chunk of the new FW during an OTA FW update. |
@@ -62,7 +62,7 @@ The camera generates the following responses.
 | [status](#get_status-response) | Response to get_status command. |
 | [wifi](#get_wifi-response) | Response to get_wifi command. |
 | [filesystem_list](#filesystem_list-response)* | Response to get\_filesystem_list command. |
-| [video_info](#video_info-response)* | Final response 
+| [video_info](#video_info-response)* | Final response when getting a .tmjsn file. |
 | [screen\_dump_response](#screen_dump_response-response)* | Response to dump_screen command. |
 
 Commands and responses are detailed below with example json strings.
