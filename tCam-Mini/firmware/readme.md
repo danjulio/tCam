@@ -1,14 +1,14 @@
 ## tCam-Mini Firmware
-tCam-Mini firmware is an Espressif IDF project.  You need to have the Espressif v4.4.2 IDF installed to build the firmware.  Pre-compiled binary files are provided (```precompiled``` directory here) and can be programmed using the IDF tools or a Windows utility as described in the ```programming``` directory elsewhere in this repostitory.
+tCam-Mini (tCam-POE) firmware is an Espressif IDF project.  You need to have the Espressif v4.4.2 IDF installed to build the firmware.  Pre-compiled binary files are provided (```precompiled``` directory here) and can be programmed using the IDF tools or a Windows utility as described in the ```programming``` directory elsewhere in this repostitory.
 
 ### Building
 The ```sdkconfig``` file contains ESP32 configuration and build-specific information.  All camera-specific configuration is in the ```main/system_config.h``` file.
 
 To build the project: ```idf.py build```
 
-To load the project onto tCam-Mini: 
+To load the project onto tCam-Mini or tCam-POE: 
 
-1. Plug tCam-Mini into your computer
+1. Plug the board into your computer
 2. ```idf.py -p PORT -b 921600 flash``` where PORT is the name of the serial port associated with gCore.
 
 To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Output is at 115200 baud.  Note the command will reboot the camera.
@@ -50,7 +50,7 @@ FW revision 2.0 adds the following new features.  It is designed to run on the t
 4. Support for a new HW Slave interface (available on PCB revision 4) for direct connect to another Micro (I use this for tCam).
 
 ### Command Interface
-The camera is capable of executing a set of commands and generating responses or sending image data when connected to a remote computer via one of the interfaces.  It can support one remote connection at a time.  Commands and responses are encoded as json-structured strings.  The command interface exists as a TCP/IP socket at port 5001 when using WiFi.
+The camera is capable of executing a set of commands and generating responses or sending image data when connected to a remote computer via one of the interfaces.  It can support one remote connection at a time.  Commands and responses are encoded as json-structured strings.  The command interface exists as a TCP/IP socket at port 5001 when using WiFi or Ethernet.
 
 Each json command or response is delimited by two characters.  A Start delimiter (8-bit value 0x02) precedes the json string.  An End delimiter (8-bit value 0x03) follows the json string.  The json string may be tightly packed or may contain white space.
 
@@ -72,7 +72,7 @@ The camera currently supports the following commands.  The communicating applica
 | [stream_on](#stream_on) | Starts the camera streaming images and sets the interval between images and an optional number of images to stream. |
 | [stream_off](#stream_off) | Stops the camera from streaming images. |
 | [get_wifi](#get_wifi) | Returns a packet with the camera's current WiFi and Network configuration. |
-| [set_wifi](#set_wifi) | Set the camera's WiFi and Network configuration.  The WiFi subsystem is immediately restarted.  The application should immediately close its socket after sending this command. |
+| [set_wifi](#set_wifi) | Set the camera's WiFi and Network configuration.  The network subsystem is immediately restarted.  The application should immediately close its socket after sending this command. |
 | [fw\_update_request](#fw_update_request) | Informs the camera of a OTA FW update size and revision and starts it blinking the LED alternating between red and green to signal to the user a OTA FW update has been requested. |
 | [fw_segment](#fw_segment) | Sends a sequential chunk of the new FW during an OTA FW update. |
 
@@ -110,7 +110,7 @@ The get_status response may include additional information for other camera mode
 
 | Status Item | Description |
 | --- | --- |
-| Camera | AP SSID also used as the camera name. |
+| Camera | AP SSID also used as the camera name for both ethernet and Wifi interfaces. |
 | Model | A 32-bit mask with camera information (see below). Software can use the camera model to enable and disable camera specific functionality. |
 | Version | Firmware version. "Major Revision . Minor Revision" |
 | Time | Current Camera Time including milliseconds: HH:MM:SS.MSEC |
@@ -125,7 +125,7 @@ The get_status response may include additional information for other camera mode
 | 15:14 | Reserved - Read as 0 |
 | 13:12 | Interface Type (FW 3.0 and beyond) |
 | | 0 0 - WiFi Interface |
-| | 0 1 - Hardware Interface (Serial/SPI Interface) |
+| | 0 1 - Hardware Interface (tCam-Mini Serial/SPI Interface) |
 | | 1 0 - Ethernet Interface (tCam-POE only) |
 | | 1 1 - Reserved |
 | 11:10 | Reserved - Read as 0 |
@@ -236,6 +236,8 @@ All set_time args must be included.
 | day | Day of Month 1-28 to 1-31 depending |
 | mon | Month 1-12 |
 | year | Year offset from 1970 |
+
+Typically the set_time command is sent when first connecting to a camera to ensure its clock can accurately timestamp images.
 
 #### get_config
 ```{"cmd":"get_config"}```
@@ -411,9 +413,9 @@ Password information is not sent as part of the wifi response.
 | 6:5 | Unused, will be set to 0. |
 | 4 | Static IP - Set to 1 to use a Static IP, 0 to request an IP via DHCP. |
 | 3 | Bit 3: Wifi Connected - Set to 1 when connected to another device. |
-| 2 | Wifi Client Running - Set to 1 when the client has been started, 0 when disabled (obviously this bit will never be 0). |
-| 1 | Wifi Initialized - Set to 1 when the WiFi subsystem has been successfully initialized (obviously this bit will never be 0). |
-| 0 | Bit 0: Wifi Enabled - Set to 1 when Wifi has been enabled, 0 when Wifi has been disabled. |
+| 2 | Wifi Client Running - Set to 1 when the network client has been started, 0 when disabled (this bit will never be 0). |
+| 1 | Wifi Initialized - Set to 1 when the network subsystem has been successfully initialized (this bit will never be 0). |
+| 0 | Bit 0: Wifi Enabled - Set to 1 when the network subsystem has been enabled, 0 when the network subsystem has been disabled (this bit will never be 0). |
 
 #### set_wifi
 ```
@@ -436,7 +438,7 @@ Individual args values may be left out (for example to just set AP or Client (ST
 
 | set_wifi argument | Description |
 | --- | --- |
-| ap_ssid | Set the AP-mode SSID and also the camera name as reported in the metadata and status objects (1-32 characters). |
+| ap_ssid | Set the AP-mode SSID and also the camera name as reported in the metadata and status objects (1-32 characters). This field should be included when you desire to change the camera name for all interfaces. |
 | ap_pw | Set the AP-mode password (8-63 characters). |
 | ap\_ip_addr | The camera's IP address when it is in AP mode. |
 | flags | Set WiFi configuration (see below). |
@@ -445,13 +447,15 @@ Individual args values may be left out (for example to just set AP or Client (ST
 | sta\_ip_addr | Set the static IP address to use when the camera as a client and configured to use a static IP. |
 | sta_netmask | Set the netmask to use when the camera as a client and configured to use a static IP. |
 
-Only a subset of the flags argument are used to configure WiFi operation.  Other bit positions are ignored.
+Only a subset of the flags argument are used to configure network operation.  Other bit positions are ignored.
 
 | Flag Bit | Description |
 | --- | --- |
 | 7 | Client Mode - Set to 1 for Client mode, 0 for AP mode. |
 | 4 | Static IP - Set to 1 to use a Static IP, 0 to request an IP via DHCP when operating in Client mode. |
-| 0 | Bit 0: Wifi Enabled - Set to 1 to enable Wifi, 0 to disable Wifi. |
+| 0 | Bit 0: Wifi Enabled - Set to 1 to enable Ethernet/Wifi, 0 to disable Ethernet/Wifi. |
+
+Client Mode and Wifi-related fields (except ```ap_ssid``` which also sets the camera name) are ignored when using the ethernet interface.  The ```sta_ip_addr``` and ```sta_netmask``` are used, along with the ```Static IP``` flag bit, to configure a static IP for the ethernet interface.
 
 The command will fail if an SSID is zero length or greater than 32 characters or if a password is less than 8 characters or greater than 63 characters.
 

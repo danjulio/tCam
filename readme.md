@@ -1,5 +1,5 @@
 ## ESP32-based Thermal Imaging Cameras
-tCam and tCam-Mini are two cameras I designed around the ESP32 and Lepton 3.5.  They are designed to provide easy access to radiometric data from the Lepton.  Radiometric data is useful because it contains temperature information for each pixel in the camera's image allowing for all kinds of data analysis even if the image is stored to a file.
+tCam, tCam-Mini and tCam-POE are three cameras I designed around the ESP32 and Lepton 3.5.  They are designed to provide easy access to radiometric data from the Lepton.  Radiometric data is useful because it contains temperature information for each pixel in the camera's image allowing for all kinds of data analysis even if the image is stored to a file.
 
 This repository was created on Nov 6, 2022 from the ESP32 section of my original [Lepton](https://github.com/danjulio/lepton) repository to reduce the size of the portion of that directory that most people are interested in.
 
@@ -9,10 +9,16 @@ tCam is a full featured, battery powered camera with a local touchscreen display
 ![tCam](tCam/pictures/tcam_iron.png)
 
 ### tCam-Mini
-tCam-Mini is a smaller network-only camera designed for streaming and remote access.  It can be built using development boards or a tested unit can be purchased from Group Gets [with built in antenna](https://store.groupgets.com/products/tcam-mini-rev4-wireless-streaming-thermal-camera-board) or [with an external antenna](https://store.groupgets.com/products/tcam-mini-rev4-external-antenna-wireless-streaming-thermal-camera-board).
+tCam-Mini is a smaller camera designed for streaming and remote access.  It supports a Wifi or hardwired interface.  It can be built using development boards or a tested unit can be purchased from Group Gets [with built in antenna](https://store.groupgets.com/products/tcam-mini-rev4-wireless-streaming-thermal-camera-board) or [with an external antenna](https://store.groupgets.com/products/tcam-mini-rev4-external-antenna-wireless-streaming-thermal-camera-board).
 
 ![tCam-Mini](pictures/tcam_mini.png)
 (Photo Credit: Matthew Navarro)
+
+### tCam-POE
+tCam-POE is a network only camera designed to work with hardwired POE connections (it also supports a Wifi connection).  At the moment, a grand total of three units have been built to validate the design (included here).
+
+![tCam-POE](pictures/tcam_poe_top.png)
+
 
 ### Desktop Application
 Both cameras share a common command set for remote access.  A companion Desktop computer application may be used to configure and access the cameras as well as perform some analysis.
@@ -30,7 +36,7 @@ A simple stand-alone server that can connect to multiple cameras, record images 
 ![Web Application](pictures/tcam_web.png)
 
 ### Python Driver
-A simple driver to allow access from python programs.
+A simple driver to allow access from python programs makes it easy to write your own software to access the cameras.  The python driver supports either a network connection to any camera, or a hardwired connection to tCam-Mini from a Raspberry Pi.
 
 ### R Driver
 Bob Rudus wrote a R driver for tCam-Mini that can be found in his [github repository](https://github.com/hrbrmstr/tcam).

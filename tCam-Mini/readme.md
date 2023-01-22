@@ -41,12 +41,12 @@ A dual-color (red/green) LED is used to communicate status.  Combinations of col
 | Status Indicator | Meaning |
 | --- | --- |
 | Off or Dim | Firmware did not start |
-| Solid Red | Firmware is running: initializing and configuring the Lepton and WiFi (when configured to use WiFi)|
+| Solid Red | Firmware is running: initializing and configuring the Lepton and WiFi (when configured to use WiFi) |
 | Blinking Yellow | WiFi AP Mode : No client connected to camera's WiFi |
 |  | WiFi Client Mode : Not connected to an AP |
-| Solid Yellow | WiFi AP Mode : Client connected to camera'sWiFi |
+| Solid Yellow | WiFi AP Mode : Client connected to camera's WiFi |
 |  | WiFi Client Mode : Connected to an AP |
-| Solid Green | Wifi Mode : WiFi is connected and external software has connected via the socket interface|
+| Solid Green | Wifi Mode : WiFi is connected and external software has connected via the socket interface |
 |  | Hardware Interface Mode : Camera is ready for operation |
 | Fast Blink Yellow | WiFi Reset in progress |
 | Alternating Red/Green | Over-the-air FW update has been requested.  Press the button to initiate the update |
@@ -70,7 +70,7 @@ Additional start-up and fault information is available from the USB Serial inter
 #### WiFi
 tCam-Mini can act as either an Access Point (creating its own WiFi network) or a client (connecting to an existing WiFi network).  WiFi is enabled when the Mode input is high (left floating) when tCam-Mini boots.  The camera acts as an Access Point (AP) by default.  It selects an SSID based on a unique MAC ID in the ESP32 with the form "tCam-Mini-HHHH" where "HHHH" are the last four hexadecimal digits of the MAC ID.  There is no password by default.  When acting as an Access Point, each tCam-Mini always has the same default IPV4 address (192.168.4.1).
 
-It can be reconfigured via a command (for example, from the desktop application) to act as a WiFi Client (STAtion mode) and connect to an existing WiFi network.  When configured as a WiFi Client, it can either get a DHCP served address from the network's router or it can also be reconfigured to have a fixed (static) IPV4 address.  Using a static address makes it easier to connect to tCam-Mini because you don't have to find out what DHCP address the router gave it by logging into the router or using a utility like the Fing Android app or nmap on Linux.
+It can be reconfigured via a command (for example, from the desktop application) to act as a WiFi Client (STAtion mode) and connect to an existing WiFi network.  When configured as a WiFi Client, it can either get a DHCP served address from the network's router or it can also be reconfigured to have a fixed (static) IPV4 address.  Using a static address makes it easier to connect to tCam-Mini because you don't have to find out what DHCP address the router gave it.
 
 Currently only one device can connect to the camera at a time.
 

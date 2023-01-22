@@ -1,0 +1,151 @@
+Loadlist
+Exported from tcam_poe.sch at 7/31/22 8:00 PM
+EAGLE Version 7.7.0 Copyright (c) 1988-2016 CadSoft
+Assembly variant: Rev 1
+
+Part     Value               Device              Package             Library                    Sheet
+
+C1       4700 pF             C-USSMT1210         C1210               djd_eagle_library          1
+C2       4700 pF             C-USSMT1210         C1210               djd_eagle_library          1
+
+C3       10 nF               C-USSMT0603         C0603               djd_eagle_library          1
+C4       10 nF               C-USSMT0603         C0603               djd_eagle_library          1
+C5       10 nF               C-USSMT0603         C0603               djd_eagle_library          1
+C6       10 nF               C-USSMT0603         C0603               djd_eagle_library          1
+
+C7       1 nF                C-USSMT1210         C1210               djd_eagle_library          1
+
+C8       0.1 uF              C-USSMT0603         C0603               djd_eagle_library          1
+C9       0.1 uF              C-USSMT0603         C0603               djd_eagle_library          1
+C15      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          2
+C17      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          2
+C19      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          2
+C20      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          2
+C23      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          3
+C25      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          3
+C35      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          4
+C37      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          4
+C38      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          4
+C39      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          4
+C40      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          4
+C41      0.1 uF              C-USSMT0603         C0603               djd_eagle_library          4
+
+C10      10 uF               C-USSMT0603         C0603               djd_eagle_library          1
+C11      10 uF               C-USSMT0603         C0603               djd_eagle_library          1
+C16      10 uF               C-USSMT0603         C0603               djd_eagle_library          2
+C18      10 uF               C-USSMT0603         C0603               djd_eagle_library          2
+C21      10 uF               C-USSMT0603         C0603               djd_eagle_library          2
+C22      10 uF               C-USSMT0603         C0603               djd_eagle_library          3
+C24      10 uF               C-USSMT0603         C0603               djd_eagle_library          3
+C26      10 uF               C-USSMT0603         C0603               djd_eagle_library          3
+
+C12      470 uF              CPOL-USSMT08X10     ECAP-0810           djd_eagle_library          1
+
+C13      20 pF               C-USSMT0603         C0603               djd_eagle_library          2
+C14      20 pF               C-USSMT0603         C0603               djd_eagle_library          2
+
+C27      22 uF               C-USSMT0603         C0603               djd_eagle_library          3
+C33      22 uF               C-USSMT0603         C0603               djd_eagle_library          3
+C34      22 uF               C-USSMT0603         C0603               djd_eagle_library          4
+
+C28      1 uF                C-USSMT0603         C0603               djd_eagle_library          3
+C29      1 uF                C-USSMT0603         C0603               djd_eagle_library          3
+C30      1 uF                C-USSMT0603         C0603               djd_eagle_library          3
+C31      1 uF                C-USSMT0603         C0603               djd_eagle_library          3
+C32      1 uF                C-USSMT0603         C0603               djd_eagle_library          3
+C36      1 uF                C-USSMT0603         C0603               djd_eagle_library          4
+
+CON1     2-406549-1          2-406549-1          TE_2-406549-1       2-406549-1                 1
+
+CON2     USB4105-GF-A        USB4105-GF-A        GCT_USB4105-GF-A    USB4105-GF-A               3
+
+D1       SMAJ58CA            DIODESMT214AC       DO214AC             djd_eagle_library          1
+D2       SMAJ58CA            DIODESMT214AC       DO214AC             djd_eagle_library          1
+
+D3       1A                  DIODESMT214AC       DO214AC             djd_eagle_library          3
+D4       1A                  DIODESMT214AC       DO214AC             djd_eagle_library          3
+
+D5       AM23ESGW            AM23ESGW            SOT23-3             djd_eagle_library          4
+
+L1       100 ohm/100 MHz     INDUCTORSMT0603     L0603               djd_eagle_library          2
+
+L2       2.2 uH              INDUCTORSMT1008     L1008               djd_eagle_library          3
+
+M1       ESP32-WROVER-I      ESP32-WROVER-I      XCVR_ESP32-WROVER-I ESP32-WROVER-I             4
+
+PB1      436351045816        PB_TACT_4WS         WURTH_WS_TASU_TACT  djd_eagle_library          4
+
+Q1       MMBT3904-7-F        BC808-NPN-SOT23-BEC SOT23-BEC           transistor                 4
+Q2       MMBT3904-7-F        BC808-NPN-SOT23-BEC SOT23-BEC           transistor                 4
+Q3       MMBT3904-7-F        BC808-NPN-SOT23-BEC SOT23-BEC           transistor                 4
+
+R1       0 ohm               R-USSMT0805         R0805               djd_eagle_library          1
+
+R2       75 ohm              R-USSMT0603         R0603               djd_eagle_library          1
+R3       75 ohm              R-USSMT0603         R0603               djd_eagle_library          1
+R4       75 ohm              R-USSMT0603         R0603               djd_eagle_library          1
+R5       75 ohm              R-USSMT0603         R0603               djd_eagle_library          1
+R27      75 ohm              R-USSMT0603         R0603               djd_eagle_library          4
+
+R7       10 kohm             R-USSMT0603         R0603               djd_eagle_library          2
+R9       10 kohm             R-USSMT0603         R0603               djd_eagle_library          2
+R25      10 kohm             R-USSMT0603         R0603               djd_eagle_library          3
+R26      10 kohm             R-USSMT0603         R0603               djd_eagle_library          4
+R29      10 kohm             R-USSMT0603         R0603               djd_eagle_library          4
+R30      10 kohm             R-USSMT0603         R0603               djd_eagle_library          4
+R31      10 kohm             R-USSMT0603         R0603               djd_eagle_library          4
+R32      10 kohm             R-USSMT0603         R0603               djd_eagle_library          4
+R35      10 kohm             R-USSMT0603         R0603               djd_eagle_library          4
+R36      10 kohm             R-USSMT0603         R0603               djd_eagle_library          4
+
+R8       6.19 kohm           R-USSMT0603         R0603               djd_eagle_library          2
+
+R10      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          2
+R11      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          2
+R12      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          2
+R13      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          2
+R14      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          2
+R15      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          2
+R21      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          3
+R22      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          3
+R23      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          3
+R28      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          4
+R37      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          4
+R38      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          4
+R39      5.1 kohm            R-USSMT0603         R0603               djd_eagle_library          3
+
+R16      330 ohm             R-USSMT0603         R0603               djd_eagle_library          2
+R17      330 ohm             R-USSMT0603         R0603               djd_eagle_library          2
+R18      330 ohm             R-USSMT0603         R0603               djd_eagle_library          3
+R19      330 ohm             R-USSMT0603         R0603               djd_eagle_library          3
+R20      330 ohm             R-USSMT0603         R0603               djd_eagle_library          3
+R33      330 ohm             R-USSMT0603         R0603               djd_eagle_library          4
+R34      330 ohm             R-USSMT0603         R0603               djd_eagle_library          4
+
+R24      43.5 kohm           R-USSMT0603         R0603               djd_eagle_library          3
+
+S1       105028-1001         105028-1001         MOLEX_105028-1001   105028-1001                4
+
+SW1      PCM12SMTR           SWITCH-SPDT-SMD-A   SWITCH-SPST-SMD-A   SparkFun-Electromechanical 4
+
+T1       HX2019FNLT          HX2019FNLT          XFMR_HX2019FNLT     HX2019FNLT                 1
+
+U1       SP3002-04JTG        SP3002-04JTG        SOT65P220X95-6N     SP3002-04JTG               1
+
+U2       IP101GR             IP101GR             QFN32_4X4           IP101GR                    2
+
+U3       SP3002-04JTG        SP3002-04JTG        SOT65P220X95-6N     SP3002-04JTG               3
+
+U4       CP2102N-A02-GQFN24  CP2102N_QFN24       QFN24               djd_eagle_library          3
+
+U5       TLV62568PDBV        TLV62568DBV         SOT23-5             djd_eagle_library          3
+
+U6       TLV75530PDBVR       V_REG_LDO           SOT23-5             djd_eagle_library          3
+
+U7       MIC5365-2.8YD5      V_REG_LDO           SOT23-5             djd_eagle_library          3
+
+U8       MIC5365-1.2YD5      V_REG_LDO           SOT23-5             djd_eagle_library          3
+
+U9       DSC1001CI1-025.0000 OSC_EN3225          CRYSTAL-3225        djd_eagle_library          4
+
+XTAL1    25 MHz              CRYSTAL5X3SMT3225   CRYSTAL-3225        djd_eagle_library          2
