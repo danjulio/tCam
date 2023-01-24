@@ -17,7 +17,7 @@ tCam-Mini is a smaller camera designed for streaming and remote access.  It supp
 ### tCam-POE
 tCam-POE is a network only camera designed to work with hardwired POE connections (it also supports a Wifi connection).  At the moment, a grand total of three units have been built to validate the design (included here).
 
-![tCam-POE](pictures/tcam_poe_top.png)
+![tCam-POE](pictures/tcam_poe_side.png)
 
 
 ### Desktop Application
