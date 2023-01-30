@@ -1,13 +1,39 @@
-## tCam/tCam-Mini Firmware Serial Upload
-There are three ways to load firmware into tCam.
+# tCam/tCamMini Firmware Serial Upload
+There are four ways to load firmware into tCam.
 
 1. Using the Espressif build process after compiling the firmware (or by using the Espressif ```idf.py``` command with the precompiled binaries).
-2. Using a download tool from Espressif to load the pre-compiled firmware from this repository.
-3. Using the Desktop application and the over-the-air (OTA) capability in tCam-Mini (FW Revision 2.0 and beyond) and all tCam FW revisions.
+2. Using a windows-only download tool from Espressif to load the pre-compiled firmware from this repository.
+3. Using the tCam Family Serial Updater tool that runs on Linux, Mac and Windows and downloads the current firmware from my website.
+4. Using the Desktop application and the over-the-air (OTA) capability in tCam-Mini (FW Revision 2.0 and beyond) and all tCam FW revisions.
 
-The second option is described here.  It requires a Microsoft Windows computer.
+Options 2 and 3 are discussed here.
 
-### Install the Espressif download tool
+## Using the tCam Family Serial Updater tool
+
+### Install the tool
+Download the appropriate zip file for your platform from my [website](http://danjuliodesigns.com/products/tcam.html).  Look for the section called tCam Family Serial Updater.  Unzip it in a known location.
+
+### Start the tool
+
+1. Linux : Run the ```tcam_serial_programmer``` executable file.  It is possible you may need to give it executable permissions (```chmod +x tcam_serial_programmer```).
+2. OS X : Double click the icon.  Although the file is signed, OS X security might complain and you'll have to go to the Security & Privacy Preference panel to allow it to run.
+3. Windows : Double click the file ```tcam_serial_programmer.exe``` in the folder that is created when by the unzipping process.  Windows security may ask you if you want to run it.
+
+Your computer will need to have internet access for the program to work.
+
+### Programming
+Plug the board (gCore, tCam-Mini, tCam-POE) into a USB port on your computer.  gCore needs to be powered on by pressing the power button.
+
+Your computer should enumerate a serial port associated with the board.  You'll need to find this and select it from the pull-down on the utility.  On Linux this might be "/dev/ttyUSB0".  On OS X it might be something like "/dev/tty.usbserial-XXXXX" where "XXXXX" is a unique number for the port.  And on Windows it will be a "COM" port (use the Device Manager if necessary to find the COM port associated with a Silicon Labs CP2102N USB UART chip).
+
+Press "Program".  You should see the program executing the steps shown below.  The entire process should require less than a minute.  The board will reboot and should be running the new firmware after the programming is complete.
+
+![tCam Family Serial Updater tool](pictures/tcam_serial_updater.png)
+
+## Using the Espressif download tool
+This option requires a Microsoft Windows computer.
+
+### Install the tool
 Download the `flash_download_tools_v3.9.3.zip` file to a Windows computer.  Unzip it in a known location.  It will unzip a directory named `flash_download_tools_v3.9.3`.  You will execute the ```flash_download_tools_v3.9.3``` binary from within that directory.
 
 ### Download firmware files
@@ -43,7 +69,7 @@ Download the four binary files from this repository to a known location.  All ar
 ### Connect Camera
 Connect the camera to the Windows Computer to allow it to load a device driver for the camera's Silicon Labs USB-Serial chip.  tCam must be switched on for the USB-Serial chip to be visible.  After a few minutes the computer should load a driver and associate a COM port with the camera.  Make a note of this port.  You can find it in the Windows Device Manager.
 
-### Start the Espressif download tool
+### Start the tool
 Double-click the ```flash_download_tools_v3.9.3``` binary from within the installation directory.
 
 A shell window will appear and then after a few seconds a selection window will appear.

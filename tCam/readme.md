@@ -4,11 +4,22 @@ tCam is a thermal imaging camera comprised of the hardware components [gCore](ht
 ![tCam imaging a solder iron](pictures/tcam_iron.png)
 
 ### Firmware
-The "Firmware" directory contains a V4.4.2 Espressif ESP32 IDF project for tCam. You should be able to build and load it into a camera using the IDF commands.  There are also a set of precompiled binaries in the "precompiled" sub-directory.  You can use the Espressif tool and instructions found in the "programming" directory in parallel to this one to load those into a camera without having to build the project.
+The "Firmware" directory contains a V4.4.2 Espressif ESP32 IDF project for tCam. You should be able to build and load it into a camera using the IDF commands.  There are also a set of precompiled binaries in the "precompiled" sub-directory.
 
-The precompiled firmware and Windows-based programming application can be downloaded directly from my [website](http://danjuliodesigns.com/products/tcam.html) as well if you don't want to clone this entire repository.
+#### Initial firmware load
+There are three ways to initially load the tCam firmware onto a gCore (which comes with different firmware loaded initially).
+
+1. Use the ESP32 IDF ```idf.py``` tool to load the firmware if you are building it yourself.  This is described in the firmware directory.  If you know what you are doing you can also use this tool to load the precompiled binary images.
+2. Use the Windows-only Espressif tool and instructions found in the "programming" directory in parallel to this one to load the precompiled binary images onto a gCore without having to build the project.
+3. Use the multi-platform tCam Family Serial Updater utility I wrote also found in the "programming" directory. It automatically downloads the most current firmware binaries from my website and writes them to a gCore (it can also load tCamMini firmware into tCam-Mini or tCam-POE boards).  It runs on 64-bit  Linux x86, Mac OS X and Windows computers.  It's the easiest way.  Just select the serial port and hit program.
+
+The tCam Family Serial Updater, precompiled firmware, and Windows-based programming application can also be downloaded individually from my [website](http://danjuliodesigns.com/products/tcam.html) as well if you don't want to clone this entire repository.
+
+#### OTA firmware loads
 
 Over-the-air (OTA) updates can be used to load new firmware using the Desktop application once the tCam firmware has been initially loaded on gCore.
+
+#### tCam-Mini compatibility
 
 The connected tCam-Mini should be running FW 3.1 or later.
 
