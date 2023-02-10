@@ -12,7 +12,7 @@ A simple 3-piece enclosure designed to be 3D printed.  Design was done with Open
 #### Parts
 
 1. Electronics as described in the main tCam respository
-2. 3.7V flat LiPo battery with Sparkfun/Adafruit connector pin-out.  I recommend about a 2000 mAh capacity.  It has to fit in the enclosure as shown in the pictures below so should be approx 54x36x10 mm or smaller.
+2. 3.7V flat LiPo battery with Sparkfun/Adafruit connector pin-out.  I recommend about a 2000 mAh capacity.  It has to fit in the enclosure as shown in the pictures below so should be approx 70x40x13 mm or smaller.  A few links (Feb 2023): [Adafruit](https://www.adafruit.com/product/2011), [AliExpress](https://www.aliexpress.us/item/2255801087801258.html), [eBay](https://www.ebay.com/itm/124445009690), [Sparkfun](https://www.sparkfun.com/products/18286).
 3. 4x 4-40 x 3/16" pan-head Type A (pointy) screws for mounting tCam-Mini.
 4. 4x 4-40 x 1/4" flat-head Type Z screws for securing gCore and the Bezel to the Base.
 
@@ -36,7 +36,7 @@ A 2-piece enclosure (front/back) designed to be cut on a laser cutter.  The SVG 
 #### Parts
 
 1. Electronics as described in the main tCam respository
-2. 3.7V Li-Ion 18650 cell with Sparkfun/Adafruit connector pin-out.
+2. 3.7V Li-Ion 18650 cell with Sparkfun/Adafruit connector pin-out.  For example this battery from [Adafruit](https://www.adafruit.com/product/1781).
 3. Two 0.1" wide zip-ties to secure the battery.
 4. Nylon stand-offs, screws, nuts and washers.  I kludged together the stand-offs from two cheap kits I had from Amazon. You'll need 2 or 4 to mount tCam-Mini, 4 to mount gCore and 4 to hold the front and back together.  See below for the lengths I cobbled together.
 
