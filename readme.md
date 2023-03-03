@@ -4,7 +4,7 @@ tCam, tCam-Mini and tCam-POE are three cameras I designed around the ESP32 and L
 This repository was created on Nov 6, 2022 from the ESP32 section of my original [Lepton](https://github.com/danjulio/lepton) repository to reduce the size of the portion of that directory that most people are interested in.
 
 ### tCam
-tCam is a full featured, battery powered camera with a local touchscreen display, local storage and a WiFi interface.  It is comprised of a [gCore]() and tCam-Mini.  gCore can be purchased from Group Gets, along with tCam-Mini.
+tCam is a full featured, battery powered camera with a local touchscreen display, local storage and a WiFi interface.  It is comprised of a [gCore]() and tCam-Mini.  A tCam kit can be purchased from Group Gets [here](https://store.groupgets.com/products/tcam-kit).
 
 ![tCam](tCam/pictures/tcam_iron.png)
 
