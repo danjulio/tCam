@@ -47,7 +47,8 @@ The hardware interface on tCam-Mini Revision 4 was designed to mate directly wit
 #### Important Notes
 
 1. Never connect USB Power to tCam-Mini when it is attached to gCore.  Doing so will back-power gCore and will damage it and/or the battery.  Only connect USB power to gCore.
-2. Remember to remove the jumper when removing tCam-Mini from gCore if you wish to use it with WiFi again and then re-install it before re-attaching to gCore (I forgot this all the time...).
+2. Be very careful with the tCam-Mini when soldering the header.  The Lepton is very fragile and it is easy to damage the shutter with too much pressure (I know...).  Probably best if you carefully remove it before soldering on the header and then carefully re-install it (making sure it is fully inserted into the socket) before installing tCam-Mini into the enclosure.
+3. Remember to remove the jumper when removing tCam-Mini from gCore if you wish to use it with WiFi again and then re-install it before re-attaching to gCore (I forgot this all the time...).
 
 ### Enclosures
 Two simple enclosure designs in included in this repository, one designed to be cut on a laser cutter and one designed to be 3D printed.
