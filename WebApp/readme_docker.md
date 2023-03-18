@@ -30,7 +30,7 @@ We also specify port 9000 on the host to be mapped to port 80 within the contain
 mkdir -p config images
 
 docker run -itd \
-    --name tcam \
+    --name tcam-docker \
     -p 9000:80 \
     --volume ./config:/tcam_config:Z \
     --volume ./images:/tcam_images:Z \
