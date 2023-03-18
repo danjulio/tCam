@@ -15,7 +15,7 @@ In this case, I have tested running the Linux x64 app within Docker, on both Win
 2. Build the Docker image, tagging the image as, for example, `tcam-docker`.
 
 ```
-docker build -t tcam-docker -f Dockerfile
+docker build -t tcam-docker -f Dockerfile .
 ```
 
 3. Spin up the tcam web application container from the image.
