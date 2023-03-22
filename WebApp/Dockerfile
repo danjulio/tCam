@@ -14,7 +14,7 @@ RUN cd /tmp/ && \
     mv Linux\ 64\ bit/tcam_web/* /app/ && \
     rm -rf /tmp/*
 
-RUN chmod 755 tcam_web && \
+RUN chmod 755 /app/tcam_web && \
     ln -s /app/tcam_web /usr/local/bin/
 
 VOLUME /tcam_config

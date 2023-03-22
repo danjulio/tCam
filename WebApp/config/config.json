@@ -1,0 +1,1 @@
+{"args":{"displayed_name":"TCAM","emissivity":100,"enable_recording":false,"max_event_images":25,"num_recovery_images":5,"remote_ip":"192.168.40.148","remote_port":5001,"stream_frame_delay_msec":1000,"threshold_max_c":35,"threshold_min_c":25,"threshold_population":15},"type":"prefs_camera"}
