@@ -15,15 +15,20 @@ tCam-Mini is a smaller camera designed for streaming and remote access.  It supp
 (Photo Credit: Matthew Navarro)
 
 ### tCam-POE
-tCam-POE is a network only camera designed to work with hardwired POE connections (it also supports a Wifi connection).  At the moment, a grand total of three units have been built to validate the design (included here).
+tCam-POE is a network only camera designed to work with hardwired POE connections (it also supports a Wifi connection).  At the moment, a grand total of six units have been built to validate the design (included here) or supply a custom order.
 
 ![tCam-POE](pictures/tcam_poe_side.png)
 
 
 ### Desktop Application
-Both cameras share a common command set for remote access.  A companion Desktop computer application may be used to configure and access the cameras as well as perform some analysis.
+Both cameras share a common command set for remote access.  A companion Desktop computer application may be used to configure and access the cameras, download new firmware, as well as perform some analysis.
 
 ![Desktop Application](pictures/app_on_desktop.png)
+
+### Android Application
+Connect, view and save images on an Android phone using the [Android App](https://play.google.com/store/apps/details?id=com.darcangel.tcamViewer) by [Jim Turner](https://darcangelsoftware.com/).  The APK may also be downloaded from, and issues logged to the [repo](https://github.com/yaturner/tcamViewer).
+
+![Android App](pictures/android_app.png)
 
 ### IOS Application
 Connect, view and save images on an iPhone or iPad using the [IOS App](https://apps.apple.com/us/app/tcamview/id1610451813).  Documentation may be found on my [website](https://danjuliodesigns.com/products/tcam_app.html).
