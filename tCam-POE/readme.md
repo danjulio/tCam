@@ -63,7 +63,7 @@ Additional start-up and fault information is available from the USB Serial inter
 tCam-POE can obtain a DHCP served address from a router on the network or may be configured with a static IP address.
 
 #### WiFi
-tCam-POE can act as either an Access Point (creating its own WiFi network) or a client (connecting to an existing WiFi network).  The camera acts as an Access Point (AP) by default.  It selects an SSID based on a unique MAC ID in the ESP32 with the form "tCam-Mini-HHHH" where "HHHH" are the last four hexadecimal digits of the MAC ID.  There is no password by default.  When acting as an Access Point, each tCam-POE always has the same default IPV4 address (192.168.4.1).
+tCam-POE can act as either an Access Point (creating its own WiFi network) or a client (connecting to an existing WiFi network).  It operates in the 2.4 GHz band. The camera acts as an Access Point (AP) by default.  It selects an SSID based on a unique MAC ID in the ESP32 with the form "tCam-Mini-HHHH" where "HHHH" are the last four hexadecimal digits of the MAC ID.  There is no password by default.  When acting as an Access Point, each tCam-POE always has the same default IPV4 address (192.168.4.1).
 
 It can be reconfigured via a command (for example, from the desktop application) to act as a WiFi Client (STAtion mode) and connect to an existing WiFi network.  When configured as a WiFi Client, it can either get a DHCP served address from the network's router or it can also be reconfigured to have a fixed (static) IPV4 address.  Using a static address makes it easier to connect to tCam-POE because you don't have to find out what DHCP address the router gave it.
 

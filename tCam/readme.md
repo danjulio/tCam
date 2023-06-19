@@ -74,7 +74,7 @@ I advise closing the charge current jumper (J1) on gCore allowing 1A maximum cha
 Diagnostic information is output on the USB serial port at 115,200 baud.
 
 #### gCore WiFi
-tCam can act as either an Access Point (creating its own WiFi network) or a client (connecting to an existing WiFi network) or WiFi may be disabled.  The camera acts as an Access Point (AP) by default.  It selects an SSID based on a unique MAC ID in the ESP32 with the form "tCam-HHHH" where "HHHH" are the last four hexadecimal digits of the MAC ID.  There is no password by default.  When acting as an Access Point, each tCam always has the same default IPV4 address (192.168.4.1).
+tCam can act as either an Access Point (creating its own WiFi network) or a client (connecting to an existing WiFi network) or WiFi may be disabled.  It operates in the 2.4 GHz band.  The camera acts as an Access Point (AP) by default.  It selects an SSID based on a unique MAC ID in the ESP32 with the form "tCam-HHHH" where "HHHH" are the last four hexadecimal digits of the MAC ID.  There is no password by default.  When acting as an Access Point, each tCam always has the same default IPV4 address (192.168.4.1).
 
 It can be reconfigured via the GUI or a command (for example, from the desktop application) to act as a WiFi Client (STAtion mode) and connect to an existing WiFi network.  When configured as a WiFi Client, it can either get a DHCP served address from the network's router or it can also be reconfigured to have a fixed (static) IPV4 address.  Using a static address makes it easier to connect to tCam because you don't have to find out what DHCP address the router gave it by logging into the router or using a utility like the Fing Android app or nmap on Linux.
 
