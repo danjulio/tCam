@@ -24,6 +24,10 @@ Note: My interests are in radiometric thermography so I have focused primarily o
 ### Enclosures
 Three simple enclosure designs in included in this repository, One designed to be cut on a laser cutter and two designed to be 3D printed.
 
+Github user [zharijs](https://github.com/zharijs) created a set of fantastic 3D printed enclosure designs, with and without GoPro™ mounts, that you can find in his [repo](https://github.com/zharijs/Enclosures/tree/main/tCam%20enclosure). He helpfully includes a BOM for extra hardware you'll need too.  Honestly, his enclosures are better than mine!
+
+![Zharijs Enclosure Body](pictures/zharijs_gopro_body.png)
+
 ### Operation
 tCam-Mini is a command-based device.  It is designed for software running on another device to control it and receive responses and image data from it.  The software communicates with tCam-Mini via one of two ways depending on the polarity of the Mode input at boot.
 
