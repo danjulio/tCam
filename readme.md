@@ -21,7 +21,7 @@ tCam-POE is a network only camera designed to work with hardwired POE connection
 
 
 ### Desktop Application
-Both cameras share a common command set for remote access.  A companion Desktop computer application may be used to configure and access the cameras, download new firmware, as well as perform some analysis.
+All three cameras share a common command set for remote access.  A companion Desktop computer application may be used to configure and access the cameras, download new firmware, as well as perform some analysis.
 
 ![Desktop Application](pictures/app_on_desktop.png)
 
