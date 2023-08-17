@@ -30,6 +30,9 @@ Press "Program".  You should see the program executing the steps shown below.  T
 
 ![tCam Family Serial Updater tool](pictures/tcam_serial_updater.png)
 
+### Note about serial device driver
+You may need to install the Silicon Labs USB Serial device driver on your computer if, after plugging in and turning on gCore, you don't see its associated serial port.  You should be able to find the driver for the CP210X at the Silicon Labs website ([here](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers?tab=downloads) at the time of this comment).
+
 ## Using the Espressif download tool
 This option requires a Microsoft Windows computer.
 
