@@ -108,7 +108,7 @@ The get_status response may include additional information for other camera mode
 | 9:8 | Lepton Type (FW 3.1 and beyond) |
 | | 0 0 - Lepton 3.5 |
 | | 0 1 - Lepton 3.0 |
-| | 1 0 - Reserved |
+| | 1 0 - Lepton 3.1 |
 | | 1 1 - Reserved |
 | 7:0 | Camera Model Number - tCam-Mini reports 2 |
 

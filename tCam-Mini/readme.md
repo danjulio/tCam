@@ -1,5 +1,5 @@
 ## tCam-Mini
-tCam-Mini was created using code from the tCam project and ended up being finished first.  It is a simple device, hardware-wise, consisting of an ESP32 WROVER module, USB UART for programming and debug, Lepton 3.0/3.5 and supporting voltage regulators and oscillator.
+tCam-Mini was created using code from the tCam project and ended up being finished first.  It is a simple device, hardware-wise, consisting of an ESP32 WROVER module, USB UART for programming and debug, Lepton 3.0, 3.1R or 3.5 and supporting voltage regulators and oscillator.
 
 ![tCam-Mini Front and Back](pictures/tcam_mini_pcb_r4.png)
 
@@ -8,7 +8,7 @@ tCam-Mini was created using code from the tCam project and ended up being finish
 Revision 4 of the PCB, along with FW 2.0 and beyond, introduces a new hardware expansion port that can be used by an external micro-controller or single-board computer to communicate with tCam-Mini directly instead of using WiFi.  It also has an I2C expansion port that is currently unused, a USB-C connector and surface-mount LED.
 
 ### Firmware
-The "Firmware" directory contains a V4.4.2 Espressif ESP32 IDF project for tCam-Mini. You should be able to build and load it into a camera using the IDF commands.  There are also a set of precompiled binaries in the "precompiled" sub-directory.  You can use the Espressif tool and instructions found in the "programming" directory in parallel to this one to load those into a camera without having to build the project.  You can also use the tCam Family Serial Updater tool to load current files from my website.
+The "Firmware" directory contains a V4.4.4 Espressif ESP32 IDF project for tCam-Mini. You should be able to build and load it into a camera using the IDF commands.  There are also a set of precompiled binaries in the "precompiled" sub-directory.  You can use the Espressif tool and instructions found in the "programming" directory in parallel to this one to load those into a camera without having to build the project.  You can also use the tCam Family Serial Updater tool to load current files from my website.
 
 The precompiled firmware and Windows-based programming application can be downloaded directly from my [website](http://danjuliodesigns.com/products/tcam_mini.html) as well if you don't want to clone this entire repository.  The tCam Family Serial Updater tool can also be [downloaded](https://danjuliodesigns.com/products/tcam.html).
 

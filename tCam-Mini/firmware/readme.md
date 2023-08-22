@@ -1,5 +1,5 @@
 ## tCam-Mini Firmware
-tCam-Mini (tCam-POE) firmware is an Espressif IDF project.  You need to have the Espressif v4.4.2 IDF installed to build the firmware.  Pre-compiled binary files are provided (```precompiled``` directory here) and can be programmed using the IDF tools or a Windows utility as described in the ```programming``` directory elsewhere in this repostitory.
+tCam-Mini (tCam-POE) firmware is an Espressif IDF project.  You need to have the Espressif v4.4.4 IDF installed to build the firmware.  Pre-compiled binary files are provided (```precompiled``` directory here) and can be programmed using the IDF tools or a Windows utility as described in the ```programming``` directory elsewhere in this repostitory.
 
 ### Building
 The ```sdkconfig``` file contains ESP32 configuration and build-specific information.  All camera-specific configuration is in the ```main/system_config.h``` file.
@@ -14,6 +14,12 @@ To load the project onto tCam-Mini or tCam-POE:
 To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Output is at 115200 baud.  Note the command will reboot the camera.
 
 ### Revision History
+
+#### FW 3.2 (8/22/2023)
+FW revision 3.2 is a minor change to properly identify the Lepton 3.1R module.
+
+1. Moved to Espressif IDF 4.4.4.
+2. Properly identify Lepton 3.1R (previous firmware would only identify Lepton 3.1 prototype).
 
 #### FW 3.1 (9/1/2022)
 FW revision 3.1 fixes issues and enhances Lepton support.
@@ -132,7 +138,7 @@ The get_status response may include additional information for other camera mode
 | 9:8 | Lepton Type (FW 3.1 and beyond) |
 | | 0 0 - Lepton 3.5 |
 | | 0 1 - Lepton 3.0 |
-| | 1 0 - Reserved |
+| | 1 0 - Lepton 3.1 |
 | | 1 1 - Reserved |
 | 7:0 | Camera Model Number - tCam-Mini reports 2 |
 
