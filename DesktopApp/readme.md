@@ -8,6 +8,7 @@ This repository contains the companion desktop application for the tCam cameras.
 * Save and load radiometric image files.
 * Save and load radiometric video (stream) files.
 * Export radiometric data as a common format image file.
+* Export radiometric video files as mp4 movies (Mac only).
 * Graph temperature at up to five points from a stream or video file.
 * Update camera firmware (tCam-Mini requires FW 2.0 and beyond).
 * Discover cameras on the local network (requires tCam-Mini FW 3.0 and beyond)
@@ -19,13 +20,13 @@ Note: Zip files for each application platform can be downloaded directly from my
 #### Version History
 The latest version release notes are shown here.  Please see the ```release_notes.pdf``` file for notes from previous versions.
 
-Version 3.1.0
+Version 3.2.0
 
-1.	Support 63 character WiFi passwords with all tCam firmware and tCam-Mini firmware 3.1 and beyond
-2. Disabled Graph when connected to a camera with a Lepton 3.0
-3. Display “RAW” and “AGC” in color palette bar when connected to a camera with a Lepton 3.0
-4. Worked around Xojo bug where pull-down menus didn't work properly in Linux builds (starting with
-version 3.0.0)
+1.	Min/Max Markers for radiometric cameras (may be included in graphs)
+2. Export mp4 video [Mac platform only] from tmjsn files
+3. Fixed bugs in export picture that would misplace markers for image size other than 320x240 pixels
+4. Reformat export picture format to include marker temperatures
+5. Improved rendering performance
 
 #### Platform Caveats
 
@@ -37,7 +38,7 @@ version 3.0.0)
 6. Linux users may need to install ```libwebkit2gtk``` to view the built-in documentation.
 7. The Raspberry Pi versions basically require a Pi 4 to display a stream at the full rate.  On slower Pi models the application may not be able to keep up and the controls may become unresponsive when streaming at the full ~9 FPS rate.
 
-An advance apology - I develop on my Mac and do quick tests on Windows 7 and 10, and Ubuntu, Kubuntu and Raspbian.  Although xojo provides pretty good cross-platform compatibility for OS X and Windows, sometimes there are issues with Linux.  If you find some other issue, please let me know and I'll try to fix it.
+An advance apology - I develop on my Mac and do quick tests on Windows 7 and 10, and Ubuntu, Kubuntu and Raspbian.  Although Xojo provides pretty good cross-platform compatibility for OS X and Windows, sometimes there are issues with Linux.  If you find some other issue, please let me know and I'll try to fix it.
 
 
 ### Main Window
@@ -161,12 +162,12 @@ Image Management controls are available based on the type of operation occurring
 * Browse - Allows opening a directory (Folder) of image and video files and displays forward and backward buttons in the Current Activity area.
 * Open - Allows opening a single image or video file.
 * Save - Allows saving the current image in a file.
-* Export - Allows saving the current image as a jpeg, png or tiff image, with or without additional metadata rendered to the image.
+* Export - Allows saving the current image as a jpeg, png or tiff image, with or without additional metadata rendered to the image.  On the Mac platform an additional option of mp4 video is available when the current activity is displaying a tmjsn video file.  Note that exporting a video can take some time.
 * Graph - Allows graphing either a stream or video file.  At least one of the spotmeter or four radiometric markers must be enabled to graph.
 
-An example of a 320x240 pixel exported image (with metadata) is shown below.
+An example of a 320x240 pixel exported image (with metadata) is shown below.  The spotmeter temperature is displayed in the center.  The enabled Marker 1 temperature is displayed to the left.
 
-![Exported Image](pictures/candle_export.png)
+![Exported Image](pictures/export320_240.png)
 
 #### Image Palette
 A pull-down menu allowing selection between a set of false color maps.  Different palettes are useful in visualizing various attributes of an image.  For example the ```Rainbow HC``` palette, with its rapidly changing colors is good for showing temperature gradients while the ```Ironblack``` palette is good for emphasizing only the hotter areas in a scene.
@@ -180,6 +181,9 @@ The Radiometric Marker temperatures are computed based on the Radiometric data i
 
 #### Spotmeter Select
 Clicking the Spotmeter Select button enables setting the spot meter position in the Lepton by clicking on a location in the image.  Note that changing the spotmeter position causes a command to be sent to the camera setting the location.  However the spotmeter display in the image and the temperature displayed above are not changed until a new image is loaded from the camera.
+
+#### Min/Max Enable
+Clicking the Min/Max Enable button displays the current minimum and maximum temperature points as markers on the image.  The minimum temperature is indicated by a lower-case 'm' character.  The maximum temperature is indicated by a upper-case 'M' character. 
 
 #### Radiometric Marker Selects
 The Radiometric Markers are only enabled if the displayed image contains radiometric data (they are disabled if the image was generated by the Lepton while AGC is enabled).
@@ -265,11 +269,12 @@ Multiple graph windows may be opened.  The data may be saved in a text file or a
 #### Save
 Saves the temperature data in a text file comprised of one or more temperature values following a timestamp, separated by spaces with one set per line.
 
-	<timestamp> <spot> <m1> <m2> <m3> <m4> <CR><LF>
+	<timestamp> <spot> <m1> <m2> <m3> <m4> <min> <max> <CR><LF>
 
 * \<timestamp\> is the number of milliseconds from the start of Unix Epoch time (Thursday, January 1, 1970 12:00:00 AM GMT).
 * \<spot\> is the spotmeter temperature (°C) if available or the character "-" if not available.
 * \<m1\> - \<m4\> are the Radiometric Marker temperatures (°C) if available or the character "-" if not available.
+* \<min\>, \<max\> are the Minimum and Maximum temperatures (°C) if available or the characters "- -" if not available.
 * \<CR\>\<LR\> are the Carriage Return and Linefeed characters.
 
 #### Export
@@ -363,7 +368,7 @@ The ```Help``` menu items contains the following selections.
 2. Documentation - Displays documentation like this readme file in a window.
 
 ### File Formats
-The application supports two file formats.
+The application supports two native file formats.
 
 * Image files (ending with the .tjsn suffix) - An image file is simply the json text from the camera's image json packet.
 * Movie (video) files (ending with the .tmjsn suffix) - A movie file consists of multiple image json text strings, one for each camera image json packet followed by a special "video_info" json text string.  Each json text string is separated by a character with the value 0x03 (the same as the END\_OF\_JSON delimiter used when an image is sent over a network interface).
