@@ -1,7 +1,7 @@
 /*
  * Settings GUI screen related functions, callbacks and event handlers
  *
- * Copyright 2020 Dan Julio
+ * Copyright 2020, 2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -104,6 +104,8 @@ static lv_obj_t* btn_emissivity;
 static lv_obj_t* btn_emissivity_label;
 static lv_obj_t* btn_emissivity_lookup;
 static lv_obj_t* btn_emissivity_lookup_label;
+static lv_obj_t* lbl_sw_min_max;
+static lv_obj_t* sw_min_max;
 
 // Row 4 Local controls
 static lv_obj_t* lbl_sw_metric_units_mode;
@@ -124,6 +126,7 @@ static bool lep_ps_val_updated;
 static void initialize_screen_values();
 static void update_emissivity();
 static void update_man_range_items();
+static void update_min_max();
 
 static void cb_btn_exit(lv_obj_t * btn, lv_event_t event);
 static void cb_btn_set_wifi(lv_obj_t * btn, lv_event_t event);
@@ -135,6 +138,7 @@ static void cb_dd_gain(lv_obj_t * dd, lv_event_t event);
 static void cb_dd_rec_interval(lv_obj_t * dd, lv_event_t event);
 static void cb_sw_metric_units_mode(lv_obj_t * sw, lv_event_t event);
 static void cb_btn_emissivity(lv_obj_t * sw, lv_event_t event);
+static void cb_sw_min_max(lv_obj_t * sw, lv_event_t event);
 static void cb_sw_range_mode(lv_obj_t * sw, lv_event_t event);
 static void cb_btn_min_range(lv_obj_t * sw, lv_event_t event);
 static void cb_btn_max_range(lv_obj_t * sw, lv_event_t event);
@@ -228,7 +232,7 @@ lv_obj_t* gui_screen_settings_create()
 	// Row 2 labels
 	lbl_sw_man_range_mode = lv_label_create(settings_screen, NULL);
 	lv_obj_set_pos(lbl_sw_man_range_mode, LC_LBL_MR_X, LC_R2_LBL_Y);
-	lv_label_set_static_text(lbl_sw_man_range_mode, "Man Range        Min                    Max");
+	lv_label_set_static_text(lbl_sw_man_range_mode, "Man Range       Range Min        Range Max");
 	
 	// Row 2 controls
 	sw_man_range_mode = lv_sw_create(settings_screen, NULL);
@@ -253,6 +257,10 @@ lv_obj_t* gui_screen_settings_create()
 	lv_obj_set_pos(lbl_btn_emissivity, LC_LBL_EM_X, LC_R3_LBL_Y);
 	lv_label_set_static_text(lbl_btn_emissivity, "Emissivity");
 	
+	lbl_sw_min_max = lv_label_create(settings_screen, NULL);
+	lv_obj_set_pos(lbl_sw_min_max, LC_LBL_MM_X, LC_R3_LBL_Y);
+	lv_label_set_static_text(lbl_sw_min_max, "mM Marker");
+	
 	// Row 3 controls
 	btn_emissivity = lv_btn_create(settings_screen, NULL);
 	lv_obj_set_pos(btn_emissivity, LC_BTN_EM_X, LC_R3_CTRL_Y);
@@ -266,6 +274,11 @@ lv_obj_t* gui_screen_settings_create()
 	lv_obj_set_event_cb(btn_emissivity_lookup, cb_btn_emissivity_lookup);
 	btn_emissivity_lookup_label = lv_label_create(btn_emissivity_lookup, NULL);
 	lv_label_set_static_text(btn_emissivity_lookup_label, "LOOKUP");
+	
+	sw_min_max = lv_sw_create(settings_screen, NULL);
+	lv_obj_set_pos(sw_min_max, LC_SW_MM_X, LC_R3_CTRL_Y);
+	lv_obj_set_size(sw_min_max, LC_SW_MM_W, LC_SW_MM_H);
+	lv_obj_set_event_cb(sw_min_max, cb_sw_min_max);
 	
 	// Row 4 labels
 	lbl_sw_metric_units_mode = lv_label_create(settings_screen, NULL);
@@ -353,7 +366,7 @@ void gui_screen_settings_set_active(bool en)
 		lv_obj_set_hidden(sw_man_range_mode, !gui_st.is_radiometric);
 		lv_obj_set_hidden(btn_min_range, !gui_st.is_radiometric);
 		lv_obj_set_hidden(btn_max_range, !gui_st.is_radiometric);
-		lv_obj_set_hidden(lbl_btn_emissivity , !gui_st.is_radiometric);
+		lv_obj_set_hidden(lbl_btn_emissivity, !gui_st.is_radiometric);
 		lv_obj_set_hidden(btn_emissivity, !gui_st.is_radiometric);
 		lv_obj_set_hidden(btn_emissivity_lookup, !gui_st.is_radiometric);
 		lv_obj_set_hidden(lbl_dd_gain , !gui_st.is_radiometric);
@@ -368,6 +381,7 @@ void gui_screen_settings_set_active(bool en)
 	
 		update_emissivity();
 		update_man_range_items();
+		update_min_max();
 		
 		lv_slider_set_value(sl_brightness, gui_st.lcd_brightness, LV_ANIM_OFF);
 	}
@@ -447,6 +461,12 @@ static void update_man_range_items()
 	sprintf(max_buf, "%d", ti);
 	lv_label_set_static_text(btn_max_range_label, max_buf);
 	lv_obj_invalidate(btn_max_range_label);
+}
+
+
+static void update_min_max()
+{
+	gui_st.min_max_enable ? lv_sw_on(sw_min_max, LV_ANIM_OFF) : lv_sw_off(sw_min_max, LV_ANIM_OFF);
 }
 
 
@@ -567,6 +587,15 @@ static void cb_btn_emissivity(lv_obj_t * sw, lv_event_t event)
 		num_entry_st.calling_screen = GUI_SCREEN_SETTINGS;
 		
 		gui_set_screen(GUI_SCREEN_NUM_ENTRY);
+	}
+}
+
+
+static void cb_sw_min_max(lv_obj_t * sw, lv_event_t event)
+{
+	if (event == LV_EVENT_VALUE_CHANGED) {
+		gui_st.min_max_enable = lv_sw_get_state(sw);
+		gui_ps_val_updated = true;
 	}
 }
 

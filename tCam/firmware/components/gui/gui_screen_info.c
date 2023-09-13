@@ -429,7 +429,7 @@ static int add_fps(int n)
 
 static int add_copyright_info(int n)
 {
-	sprintf(&cam_info_buf[n], "\ntCam copyright (c) 2020-2022 Dan Julio.  All rights reserved.\n");
+	sprintf(&cam_info_buf[n], "\ntCam copyright (c) 2020-2023 Dan Julio.  All rights reserved.\n");
 	
 	return(strlen(cam_info_buf));
 }

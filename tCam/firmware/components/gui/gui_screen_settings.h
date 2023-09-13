@@ -1,7 +1,7 @@
 /*
  * Settings GUI screen related functions, callbacks and event handlers
  *
- * Copyright 2020 Dan Julio
+ * Copyright 2020, 2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -91,7 +91,8 @@
 
 // Row 3 labels
 #define LC_R3_LBL_Y   (LC_R2_CTRL_Y + LC_SW_MR_H + LC_CTRL_DY)
-#define LC_LBL_EM_X   LC_LEFT_X
+#define LC_LBL_EM_X   (LC_LEFT_X + 60)
+#define LC_LBL_MM_X   (LC_LEFT_X + 2 * (LC_BTN_MIN_W + 30))
 
 // Row 3 controls
 #define LC_R3_CTRL_Y  (LC_R3_LBL_Y + LC_LBL_DY)
@@ -101,6 +102,9 @@
 #define LC_BTN_LU_X   (LC_BTN_EM_X + LC_BTN_EM_W + 30)
 #define LC_BTN_LU_W   80
 #define LC_BTN_LU_H   LC_BTN_EM_H
+#define LC_SW_MM_X    (LC_BTN_LU_X + LC_BTN_EM_W + 30)
+#define LC_SW_MM_W    80
+#define LC_SW_MM_H    30
 
 // Row 4 labels
 #define LC_R4_LBL_Y   (LC_R3_CTRL_Y + LC_BTN_EM_H + LC_CTRL_DY)

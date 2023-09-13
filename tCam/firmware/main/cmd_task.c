@@ -38,7 +38,6 @@
 #include "wifi_utilities.h"
 #include "system_config.h"
 #include "esp_system.h"
-#include "esp_ota_ops.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -47,7 +46,6 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
-#include "mdns.h"
 #include <string.h>
 
 
@@ -75,15 +73,6 @@ static bool connected = false;
 static int rx_circular_push_index;
 static int rx_circular_pop_index;
 
-// mDNS TXT records
-#define NUM_SERVICE_TXT_ITEMS 3
-static mdns_txt_item_t service_txt_data[NUM_SERVICE_TXT_ITEMS];
-static char* txt_item_keys[NUM_SERVICE_TXT_ITEMS] = {
-	"model",
-	"interface",
-	"version"
-};
-
 
 
 //
@@ -106,7 +95,7 @@ static bool process_del_fs_obj(cJSON* cmd_args);
 static bool process_fw_upd_request(cJSON* cmd_args);
 static bool process_fw_segment(cJSON* cmd_args);
 static int in_buffer(char c);
-static void cmd_start_mdns();
+//static void cmd_start_mdns();
 
 
 
@@ -134,9 +123,6 @@ void cmd_task()
 	if (!wifi_is_connected()) {
 		vTaskDelay(pdMS_TO_TICKS(500));
 	}
-	
-	// Attempt to start the MDNS discovery service (we continue even if it fails)
-	cmd_start_mdns();
 	
 	// Config IPV4
     destAddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -684,7 +670,7 @@ static bool process_set_time(cJSON* cmd_args)
 	if (json_parse_set_time(cmd_args, &te)) {
 		time_set(te);
 		
-		// Update the clock in tCamMini after we've updated our own time
+		// Update the clock in tCam-Mini after we've updated our own time
 		lepton_set_time();
 		
 		return true;
@@ -700,7 +686,6 @@ static bool process_set_wifi(cJSON* cmd_args)
 	char sta_ssid[PS_SSID_MAX_LEN+1];
 	char ap_pw[PS_PW_MAX_LEN+1];
 	char sta_pw[PS_PW_MAX_LEN+1];
-	esp_err_t ret;
 	wifi_info_t new_wifi_info;
 	
 	new_wifi_info.ap_ssid = ap_ssid;
@@ -709,14 +694,6 @@ static bool process_set_wifi(cJSON* cmd_args)
 	new_wifi_info.sta_pw = sta_pw;
 	
 	if (json_parse_set_wifi(cmd_args, &new_wifi_info)) {
-		// Update the mDNS server if we got a new name (ap_ssid)
-		if (ps_has_new_cam_name(&new_wifi_info)) {
-			ret = mdns_hostname_set(ap_ssid);
-			if (ret != ESP_OK) {
-				ESP_LOGE(TAG, "Could not set new mDNS hostname %s (%d)", ap_ssid, ret);
-			}
-		}
-		
 		// Then update persistent storage
 		ps_set_wifi_info(&new_wifi_info);
 		xTaskNotify(task_handle_app, APP_NOTIFY_NEW_WIFI_MASK, eSetBits);
@@ -854,54 +831,4 @@ static int in_buffer(char c)
 	}
 	
 	return -1;
-}
-
-
-/**
- * Start the mDNS responder
- */
-static void cmd_start_mdns()
-{
-	char model_type[2];     // Camera Model number "N"
-	char txt_if_type[5];    // "WiFi"
-	const esp_app_desc_t* app_desc;
-	esp_err_t ret;
-	wifi_info_t* wifi_infoP;
-	
-	// Attempt to initialize mDNS
-	ret = mdns_init();
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "Could not initialize mDNS (%d)", ret);
-		return;
-	}
-	
-	// Set our hostname
-	wifi_infoP = wifi_get_info();
-	ret = mdns_hostname_set(wifi_infoP->ap_ssid);
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "Could not set mDNS hostname %s (%d)", wifi_infoP->ap_ssid, ret);
-		return;
-	}
-	
-	// Get dynamic info for TXT records
-	app_desc = esp_ota_get_app_description();  // Get version info
-	model_type[0] = '0' + CAMERA_MODEL_NUM;
-	model_type[1] = 0;
-	strcpy(txt_if_type, "WiFi");
-	
-	service_txt_data[0].key = txt_item_keys[0];
-	service_txt_data[0].value = model_type;
-	service_txt_data[1].key = txt_item_keys[1];
-	service_txt_data[1].value = txt_if_type;
-	service_txt_data[2].key = txt_item_keys[2];
-	service_txt_data[2].value = app_desc->version;
-	
-	// Initialize service
-	ret = mdns_service_add(NULL, "_tcam-socket", "_tcp", CMD_PORT, service_txt_data, NUM_SERVICE_TXT_ITEMS);
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "Could not initialize mDNS service (%d)", ret);
-		return;
-	}
-	
-	ESP_LOGI(TAG, "mDNS started");
 }

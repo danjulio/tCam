@@ -1,7 +1,7 @@
 /*
- * Renderers for lepton images and spot meter
+ * Renderers for lepton images, spot meter and min/max markers
  *
- * Copyright 2020 Dan Julio
+ * Copyright 2020, 2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -40,12 +40,15 @@ static void render_double_rad_data(lep_buffer_t* lep, uint16_t* img, gui_state_t
 static void render_double_agc_data(lep_buffer_t* lep, uint16_t* img);
 static void render_interp_rad_data(lep_buffer_t* lep, uint16_t* img, gui_state_t* g);
 static void render_interp_agc_data(uint16_t* buf, uint16_t* img);
+static void render_min_marker(lep_buffer_t* lep, uint16_t* img);
+static void render_max_marker(lep_buffer_t* lep, uint16_t* img);
 static void interp_set_pixel(uint16_t src, uint16_t* img, int x, int y);
 static void interp_set_outer_row(uint16_t* src, uint16_t* img, bool first_row);
 static void interp_set_outer_col(uint16_t* src, uint16_t* img, bool first_col);
 static void interp_set_inner(uint16_t* src, uint16_t* img);
 static void draw_hline(uint16_t* img, int16_t x1, int16_t x2, int16_t y, int16_t c);
 static void draw_vline(uint16_t* img, int16_t x, int16_t y1, int16_t y2, int16_t c);
+static void draw_line(uint16_t* img, int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t c);
 
 
 //
@@ -115,6 +118,13 @@ void render_spotmeter(lep_buffer_t* lep, uint16_t* img)
 	draw_hline(img, x1, x2, y2, 0x0000);
 	draw_vline(img, x1, y1, y2, 0x0000);
 	draw_vline(img, x2, y1, y2, 0x0000);
+}
+
+
+void render_min_max_markers(lep_buffer_t* lep, uint16_t* img)
+{
+	render_min_marker(lep, img);
+	render_max_marker(lep, img);
 }
 
 
@@ -249,6 +259,60 @@ static void render_interp_agc_data(uint16_t* buf, uint16_t* img)
 	
 	// Inner pixels
 	interp_set_inner(buf, img);
+}
+
+
+static void render_min_marker(lep_buffer_t* lep, uint16_t* img)
+{
+	int16_t x1, xm, x2, y1, y2;
+	
+	// Compute a bounding box around the marker triangle
+	x1 = lep->lep_min_x * IMG_BUF_MULT_FACTOR - (IMG_MM_MARKER_SIZE/2);
+	xm = lep->lep_min_x * IMG_BUF_MULT_FACTOR;
+	x2 = x1 + IMG_MM_MARKER_SIZE;
+	y1 = lep->lep_min_y * IMG_BUF_MULT_FACTOR - (IMG_MM_MARKER_SIZE/2);
+	y2 = y1 + IMG_MM_MARKER_SIZE;
+	
+	// Draw a white downward facing triangle surrounded by a black triangle for contrast
+	draw_hline(img, x1, x2, y1, 0xFFFF);
+	draw_line(img, x1, y1, xm, y2, 0xFFFF);
+	draw_line(img, xm, y2, x2, y1, 0xFFFF);
+	
+	x1--;
+	y1--;
+	x2++;
+	y2++;
+	
+	draw_hline(img, x1, x2, y1, 0x0000);
+	draw_line(img, x1, y1, xm, y2, 0x0000);
+	draw_line(img, xm, y2, x2, y1, 0x0000);
+}
+
+
+static void render_max_marker(lep_buffer_t* lep, uint16_t* img)
+{
+	int16_t x1, xm, x2, y1, y2;
+	
+	// Compute a bounding box around the marker triangle
+	x1 = lep->lep_max_x * IMG_BUF_MULT_FACTOR - (IMG_MM_MARKER_SIZE/2);
+	xm = lep->lep_max_x * IMG_BUF_MULT_FACTOR;
+	x2 = x1 + IMG_MM_MARKER_SIZE;
+	y1 = lep->lep_max_y * IMG_BUF_MULT_FACTOR - (IMG_MM_MARKER_SIZE/2);
+	y2 = y1 + IMG_MM_MARKER_SIZE;
+	
+	// Draw a white upward facing triangle surrounded by a black triangle for contrast
+	draw_hline(img, x1, x2, y2, 0xFFFF);
+	draw_line(img, x1, y2, xm, y1, 0xFFFF);
+	draw_line(img, xm, y1, x2, y2, 0xFFFF);
+	
+	x1--;
+	y1--;
+	x2++;
+	y2++;
+	
+	draw_hline(img, x1, x2, y2, 0x0000);
+	draw_line(img, x1, y2, xm, y1, 0x0000);
+	draw_line(img, xm, y1, x2, y2, 0x0000);
 }
 
 
@@ -467,5 +531,34 @@ static void draw_vline(uint16_t* img, int16_t x, int16_t y1, int16_t y2, int16_t
 		}
 		imgP += IMG_BUF_WIDTH;
 		y1++;
+	}
+}
+
+
+static void draw_line(uint16_t* img, int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t c)
+{
+	int16_t dx = abs(x2 - x1);
+	int16_t dy = -abs(y2 - y1);
+	int16_t err = dx + dy;
+	int16_t e2;
+	int16_t sx = (x1 < x2) ? 1 : -1;
+	int16_t sy = (y1 < y2) ? 1 : -1;
+	
+	for (;;) {
+		if ((x1 >= 0) && (x1 < IMG_BUF_WIDTH) && (y1 >= 0) && (y1 < IMG_BUF_HEIGHT)) {
+			*(img + x1 + IMG_BUF_WIDTH*y1) = c;
+		}
+		
+		if ((x1 == x2) && (y1 == y2)) break;
+		
+		e2 = 2 * err;
+		if (e2 >= dy) {
+			err += dy;
+			x1 += sx;
+		}
+		if (e2 <= dx) {
+			err += dx;
+			y1 += sy;
+		}
 	}
 }

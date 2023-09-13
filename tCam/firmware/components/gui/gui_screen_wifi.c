@@ -31,7 +31,6 @@
 #include "wifi_utilities.h"
 #include "lvgl/lvgl.h"
 #include "lv_conf.h"
-#include "mdns.h"
 #include <string.h>
 
 
@@ -583,8 +582,6 @@ static void cb_tbl_ssid_list(lv_obj_t* lbl, lv_event_t event)
  */
 static void cb_kbd(lv_obj_t* kb, lv_event_t event)
 {
-	esp_err_t ret;
-	
 	// First look for close keys
 	if (event == LV_EVENT_CANCEL) {
 		// Exit without changing anything
@@ -610,15 +607,7 @@ static void cb_kbd(lv_obj_t* kb, lv_event_t event)
 				strcpy(local_wifi_info.ap_ssid, ssid_ta_str);
 				strcpy(local_wifi_info.ap_pw, pw_ta_str);
 			}
-			
-			// Update the mDNS server if we got a new name (ap_ssid)
-			if (ps_has_new_cam_name(&local_wifi_info)) {
-				ret = mdns_hostname_set(local_wifi_info.ap_ssid);
-				if (ret != ESP_OK) {
-					ESP_LOGE(TAG, "Could not set new mDNS hostname %s (%d)", local_wifi_info.ap_ssid, ret);
-				}
-			}
-			
+					
 			// Then save the new WiFi configuration
 			ps_set_wifi_info(&local_wifi_info);
 

@@ -51,6 +51,7 @@ typedef struct {
 	bool agc_enabled;            // Set by telemetry from Lepton to indicate image state
 	bool display_interp_enable;
 	bool is_radiometric;         // Set by telemetry from Lepton to indicate if the lepton is radiometric
+	bool min_max_enable;
 	bool spotmeter_enable;
 	bool temp_unit_C;
 	bool man_range_mode;         // Manual range (when camera is in Radiometric mode)

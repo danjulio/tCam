@@ -4,7 +4,7 @@ tCam is a thermal imaging camera comprised of the hardware components [gCore](ht
 ![tCam imaging a solder iron](pictures/tcam_iron.png)
 
 ### Firmware
-The "Firmware" directory contains a V4.4.2 Espressif ESP32 IDF project for tCam. You should be able to build and load it into a camera using the IDF commands.  There are also a set of precompiled binaries in the "precompiled" sub-directory.
+The "Firmware" directory contains a V4.4.4 Espressif ESP32 IDF project for tCam. You should be able to build and load it into a camera using the IDF commands.  There are also a set of precompiled binaries in the "precompiled" sub-directory.
 
 #### Initial firmware load
 There are three ways to initially load the tCam firmware onto a gCore (which comes with different firmware loaded initially).
@@ -119,6 +119,10 @@ The Main Screen is displayed when tCam is turned on.
 | Time | The camera time (hours and minutes) is shown.  Important to set the time (the applications do it automatically) because it is used to timestamp images. |
 | WiFi Status | The WiFi SSID is shown in white when WiFi is enabled (either the camera name for AP mode or the WiFi name for client/station mode).  The status turns green when a software program is connected to the camera. |
 
+The spotmeter, minimum and maximum temperature points may be indicated by markers over the image.  The minimum and maximum temperature points may not be displayed when AGC is enabled.
+
+![tCam Image with spotmeter and min/max markers](pictures/tCam_screenshots/tcam_markers.png)
+
 The area under the spotmeter temperature is used to display temporary status messages including a new palette when one is selected or the filename of an image or video when the shutter button is pressed.  The message is displayed for about a second.
 
 ![tCam Main Screen](pictures/tCam_screenshots/tcam_main_status.png)
@@ -132,13 +136,14 @@ The Settings Screen is used to configure the camera.
 | --- | --- |
 | CLOCK | Displays the Clock Setup Screen. |
 | Display Brightness | Sets the LCD backlight brightness. |
-| Emissivity | Displays a numeric keypad screen to enter an emissivity value for the Lepton. |
+| Emissivity Value | Displays a numeric keypad screen to enter an emissivity value for the Lepton. |
+| Emissivity LOOKUP | Displays the Emissivity Lookup Screen which contains a list of materials which can be selected to set an appropriate emissivity value. |
 | Gain | Select the Lepton Gain (Auto, Low, High) using a drop-down menu. |
 | INFO | Displays the Camera Information Screen. |
-| LOOKUP | Displays the Emissivity Lookup Screen which contains a list of materials which can be selected to set an appropriate emissivity value. |
 | Man Range | Enable or disable Manual Range. |
-| Man Range Min | Displays a numeric keypad screen to enter a minimum temperature for Manual Range (in the current units). |
-| Man Range Max | Displays a numeric keypad screen to enter a maximum temperature for Manual Range (in the current units). |
+| Range Min | Displays a numeric keypad screen to enter a minimum temperature for Manual Range (in the current units). |
+| Range Max | Displays a numeric keypad screen to enter a maximum temperature for Manual Range (in the current units). |
+| mM Marker | Enable or disable Min/Max Temperature markers. |
 | Metric | Toggles between Imperial and Metric units (°F or °C). |
 | NETWORK | Displays the Network Setup Screen. |
 | Record Interval | Select the rate to store images when recording a movie using a drop-down menu.  The rate can vary from the fastest (~8.8 FPS) to one image every five minutes. |
@@ -155,7 +160,7 @@ The numeric entry screens for Emissivity, Min and Max Range look like the follow
 The 'X' button returns to the previous screen without change.  The 'C' button clears the value.  The backspace button clears the last entered number.  The checkmark button saves the new setting and returns to the previous screen.
 
 #### Browse Screen
-The Browse Screen is used to view files on the Micro-SD card.  When displayed it shows the last recorded image or video.  The Browse Screen displaying an image file is shown below.
+The Browse Screen is used to view files on the Micro-SD card.  When displayed it shows the last recorded image or video.  The Browse Screen displaying an image file is shown below.  The Browse screen is displayed with the current palette and min/max marker settings.
 
 ![tCam Browse Screen](pictures/tCam_screenshots/tcam_browse_image.png)
 

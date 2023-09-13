@@ -1,7 +1,7 @@
 /*
- * Renderers for lepton images and spot meter
+ * Renderers for lepton images, spot meter and min/max markers
  *
- * Copyright 2020 Dan Julio
+ * Copyright 2020, 2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -41,6 +41,9 @@
 // Spot meter
 #define IMG_SPOT_MIN_SIZE   10
 
+// Min/Max markers
+#define IMG_MM_MARKER_SIZE  10
+
 // Linear Interpolation Scale Factors
 //  DS = Dual Source Pixel case (SF_DS is typically 2 or 3)
 //  QS = Quad Source Pixel case (SF_QS is typically 3 or 5)
@@ -56,5 +59,6 @@
 //
 void render_lep_data(lep_buffer_t* lep, uint16_t* img, gui_state_t* g);
 void render_spotmeter(lep_buffer_t* lep, uint16_t* img);
+void render_min_max_markers(lep_buffer_t* lep, uint16_t* img);
 
 #endif /* RENDER_H */

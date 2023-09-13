@@ -12,7 +12,7 @@
  * Be sure to read the requirements about freeing allocated buffers or objects in
  * the function description.  Or BOOM.
  *
- * Copyright 2020-2022 Dan Julio
+ * Copyright 2020-2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -1500,6 +1500,10 @@ bool json_parse_image(cJSON* img_obj, uint64_t* ts_msec, lep_buffer_t* lep_img)
 	int res;
 	tmElements_t te;
 	uint16_t* lepP;
+	uint16_t* min_lepP;
+	uint16_t* max_lepP;
+	uint16_t min;
+	uint16_t max;
 	
 	// Process the metadata, if it exists, to get the timestamp
 	if (cJSON_HasObjectItem(img_obj, "metadata")) {
@@ -1531,14 +1535,27 @@ bool json_parse_image(cJSON* img_obj, uint64_t* ts_msec, lep_buffer_t* lep_img)
 				ESP_LOGE(TAG, "Obj base 64 radiometric decode failed - %d (%d bytes decoded)", res, len);
 				success = false;
 			} else {
-				// Compute the min/max values
-				lep_img->lep_min_val = 0xFFFF;
-				lep_img->lep_max_val = 0;
-				lepP = lep_img->lep_bufferP + LEP_NUM_PIXELS;
+				// Compute the min/max values and their location
+				min = 0xFFFF;
+				max = 0;
+				lepP = min_lepP = lep_img->lep_bufferP + LEP_NUM_PIXELS;
+				max_lepP = lep_img->lep_bufferP;
 				while (lepP-- != lep_img->lep_bufferP) {
-					if (*lepP < lep_img->lep_min_val) lep_img->lep_min_val = *lepP;
-					if (*lepP > lep_img->lep_max_val) lep_img->lep_max_val = *lepP;
+					if (*lepP < min) {
+						min = *lepP;
+						min_lepP = lepP;
+					}
+					if (*lepP > max) {
+						max = *lepP;
+						max_lepP = lepP;
+					}
 				}
+				lep_img->lep_min_val = min;
+				lep_img->lep_min_x = (min_lepP - lep_img->lep_bufferP) % LEP_WIDTH;
+				lep_img->lep_min_y = (min_lepP - lep_img->lep_bufferP) / LEP_WIDTH;
+				lep_img->lep_max_val = max;
+				lep_img->lep_max_x = (max_lepP - lep_img->lep_bufferP) % LEP_WIDTH;
+				lep_img->lep_max_y = (max_lepP - lep_img->lep_bufferP) / LEP_WIDTH;
 			}
 		} else {
 			success = false;
@@ -1578,6 +1595,10 @@ bool json_parse_image_string(char* img, lep_buffer_t* lep_img)
 	int res;
 	size_t len = 0;
 	uint16_t* lepP;
+	uint16_t* min_lepP;
+	uint16_t* max_lepP;
+	uint16_t min;
+	uint16_t max;
 	
 	// Find the start if the encoded image string
 	//   1. Find radiometric/telemetry
@@ -1612,14 +1633,27 @@ bool json_parse_image_string(char* img, lep_buffer_t* lep_img)
 		ESP_LOGE(TAG, "String base 64 radiometric decode failed - %d (%d bytes decoded)", res, len);
 		return false;
 	} else {
-		// Compute the min/max values
-		lep_img->lep_min_val = 0xFFFF;
-		lep_img->lep_max_val = 0;
-		lepP = lep_img->lep_bufferP + LEP_NUM_PIXELS;
-		while (lepP-- != lep_img->lep_bufferP) {
-			if (*lepP < lep_img->lep_min_val) lep_img->lep_min_val = *lepP;
-			if (*lepP > lep_img->lep_max_val) lep_img->lep_max_val = *lepP;
-		}
+		// Compute the min/max values and their location
+				min = 0xFFFF;
+				max = 0;
+				lepP = min_lepP = lep_img->lep_bufferP + LEP_NUM_PIXELS;
+				max_lepP = lep_img->lep_bufferP;
+				while (lepP-- != lep_img->lep_bufferP) {
+					if (*lepP < min) {
+						min = *lepP;
+						min_lepP = lepP;
+					}
+					if (*lepP > max) {
+						max = *lepP;
+						max_lepP = lepP;
+					}
+				}
+				lep_img->lep_min_val = min;
+				lep_img->lep_min_x = (min_lepP - lep_img->lep_bufferP) % LEP_WIDTH;
+				lep_img->lep_min_y = (min_lepP - lep_img->lep_bufferP) / LEP_WIDTH;
+				lep_img->lep_max_val = max;
+				lep_img->lep_max_x = (max_lepP - lep_img->lep_bufferP) % LEP_WIDTH;
+				lep_img->lep_max_y = (max_lepP - lep_img->lep_bufferP) / LEP_WIDTH;
 	}
 	
 	// Decode the telemetry
@@ -1855,14 +1889,12 @@ static bool json_add_metadata_object(cJSON* parent)
 	char buf[40];
 	int model_field;
 	cJSON* meta;
-	gui_state_t* gui_stP;
 	wifi_info_t* wifi_info;
 	const esp_app_desc_t* app_desc;
 	tmElements_t te;
 	
 	// Get system information
 	app_desc = esp_ota_get_app_description();
-	gui_stP = gui_get_gui_st();
 	time_get(&te);
 	
 	// Create and add to the metadata object

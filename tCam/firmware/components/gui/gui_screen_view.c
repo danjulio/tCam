@@ -1,7 +1,7 @@
 /*
  * View Files GUI screen related functions, callbacks and event handlers
  *
- * Copyright 2020-2021 Dan Julio
+ * Copyright 2020-2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -391,6 +391,11 @@ void gui_screen_view_update_image()
 	// Update spot meter on image
 	if (view_gui_st.spotmeter_enable && view_gui_st.is_radiometric) {
 		render_spotmeter(&file_gui_buffer[video_gui_buf_index], gui_lep_canvas_buffer);
+	}
+	
+	// Update min/max markers on image
+	if (!view_gui_st.agc_enabled && view_gui_st.min_max_enable) {
+		render_min_max_markers(&file_gui_buffer[video_gui_buf_index], gui_lep_canvas_buffer);
 	}
 	
 	// Update temps
@@ -807,8 +812,8 @@ static void update_video_timestamps()
 
 static void cb_lepton_image(lv_obj_t * img, lv_event_t event)
 {
-	if ((event == LV_EVENT_PRESSED) && view_gui_st.is_radiometric) {		
-		if (!view_gui_st.spotmeter_enable) {
+	if (event == LV_EVENT_PRESSED) {		
+		if (!view_gui_st.spotmeter_enable && view_gui_st.is_radiometric) {
 			// Re-enable the spot display
 			view_gui_st.spotmeter_enable = true;
 			if (image_valid) {
@@ -848,8 +853,13 @@ static void cb_colormap_canvas(lv_obj_t * btn, lv_event_t event)
 			render_lep_data(&file_gui_buffer[video_gui_buf_index], gui_lep_canvas_buffer, &view_gui_st);
 	
 			// Update spot meter on image
-			if (view_gui_st.spotmeter_enable) {
+			if (view_gui_st.spotmeter_enable && view_gui_st.is_radiometric) {
 				render_spotmeter(&file_gui_buffer[video_gui_buf_index], gui_lep_canvas_buffer);
+			}
+			
+			// Update min/max markers on image
+			if (!view_gui_st.agc_enabled && view_gui_st.min_max_enable) {
+				render_min_max_markers(&file_gui_buffer[video_gui_buf_index], gui_lep_canvas_buffer);
 			}
 			
 			lv_obj_invalidate(img_view);
@@ -867,6 +877,12 @@ static void cb_spot_temp(lv_obj_t * btn, lv_event_t event)
 			
 			// Blank spot information (by redrawing image w/o spot)
 			render_lep_data(&file_gui_buffer[video_gui_buf_index], gui_lep_canvas_buffer, &view_gui_st);
+			
+			// Update min/max markers on image
+			if (!view_gui_st.agc_enabled && view_gui_st.min_max_enable) {
+				render_min_max_markers(&file_gui_buffer[video_gui_buf_index], gui_lep_canvas_buffer);
+			}
+			
 			lv_obj_invalidate(img_view);
 			update_spot_temp(&file_gui_buffer[video_gui_buf_index], false);
 		}

@@ -75,10 +75,10 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(1250));
     
     // Start remaining tasks
-    xTaskCreatePinnedToCore(&cmd_task,    "cmd_task",    3072, NULL, 2, &task_handle_cmd,    0);
+    xTaskCreatePinnedToCore(&cmd_task,    "cmd_task",    3584, NULL, 2, &task_handle_cmd,    0);
     xTaskCreatePinnedToCore(&file_task,   "file_task",   3072, NULL, 3, &task_handle_file,   1);
     xTaskCreatePinnedToCore(&gcore_task,  "gcore_task",  2048, NULL, 1, &task_handle_gcore,  0);
-    xTaskCreatePinnedToCore(&rsp_task,    "rsp_task",    3072, NULL, 2, &task_handle_rsp,    1);
+    xTaskCreatePinnedToCore(&rsp_task,    "rsp_task",    2560, NULL, 2, &task_handle_rsp,    1);
     xTaskCreatePinnedToCore(&lep_task,    "lep_task",    2560, NULL, 3, &task_handle_lep,    1);
 #ifdef INCLUDE_SYS_MON
 	xTaskCreatePinnedToCore(&mon_task,    "mon_task",    2048, NULL, 1, &task_handle_mon,    1);

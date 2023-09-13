@@ -26,11 +26,14 @@
  */
 #include "wifi_utilities.h"
 #include "ps_utilities.h"
+#include "system_config.h"
 #include "esp_system.h"
+#include "esp_ota_ops.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "mdns.h"
 #include "nvs_flash.h"
 #include <string.h>
 
@@ -77,6 +80,15 @@ static wifi_ap_record_t ap_info[WIFI_MAX_SCAN_LIST_SIZE];
 static bool scan_in_progress = false;
 static bool got_scan_done_event = false; // Set when an AP Scan is complete
 
+// mDNS TXT records
+#define NUM_SERVICE_TXT_ITEMS 3
+static mdns_txt_item_t service_txt_data[NUM_SERVICE_TXT_ITEMS];
+static char* txt_item_keys[NUM_SERVICE_TXT_ITEMS] = {
+	"model",
+	"interface",
+	"version"
+};
+
 
 
 //
@@ -87,6 +99,7 @@ static bool enable_esp_wifi_ap();
 static bool enable_esp_wifi_client();
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+static void start_mdns();
 
 
 
@@ -175,6 +188,9 @@ bool wifi_init()
 		return false;
 	}
 	
+	// Start advertising our name and address for others to find us
+	start_mdns();
+	
 	return true;
 }
 
@@ -185,6 +201,9 @@ bool wifi_init()
  */
 bool wifi_reinit()
 {
+	// Disable mDNS
+	mdns_free();
+	
 	// Attempt to disconnect from an AP if we were previously connected
 	if (sta_connected) {
 		ESP_LOGI(TAG, "Attempting to disconnect from AP");
@@ -236,6 +255,9 @@ bool wifi_reinit()
 	// Nothing should be connected now
 	wifi_info.flags &= ~WIFI_INFO_FLAG_CONNECTED;
 	
+	// Re-enable mDNS
+	start_mdns();
+	
 	return true;
 }
 
@@ -260,6 +282,9 @@ bool wifi_setup_scan()
 	};
 	
 	got_scan_done_event = false;
+	
+	// Disable mDNS
+	mdns_free();
 	
 	// Attempt to disconnect from an AP if we were previously connected
 	if (sta_connected) {
@@ -627,7 +652,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 }
 
 
-/*
+/**
  * Handle events from the TCP/IP stack
  */
 static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -645,4 +670,54 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
     wifi_info.cur_ip_addr[2] = (ip_info->ip.addr >> 8) & 0xFF;
     wifi_info.cur_ip_addr[1] = (ip_info->ip.addr >> 16) & 0xFF;
 	wifi_info.cur_ip_addr[0] = (ip_info->ip.addr >> 24) & 0xFF;
+}
+
+
+/**
+ * Start the mDNS responder
+ */
+static void start_mdns()
+{
+	char model_type[2];     // Camera Model number "N"
+	char txt_if_type[5];    // "WiFi"
+	const esp_app_desc_t* app_desc;
+	esp_err_t ret;
+	wifi_info_t* wifi_infoP;
+	
+	// Attempt to initialize mDNS
+	ret = mdns_init();
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Could not initialize mDNS (%d)", ret);
+		return;
+	}
+	
+	// Set our hostname
+	wifi_infoP = wifi_get_info();
+	ret = mdns_hostname_set(wifi_infoP->ap_ssid);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Could not set mDNS hostname %s (%d)", wifi_infoP->ap_ssid, ret);
+		return;
+	}
+	
+	// Get dynamic info for TXT records
+	app_desc = esp_ota_get_app_description();  // Get version info
+	model_type[0] = '0' + CAMERA_MODEL_NUM;
+	model_type[1] = 0;
+	strcpy(txt_if_type, "WiFi");
+	
+	service_txt_data[0].key = txt_item_keys[0];
+	service_txt_data[0].value = model_type;
+	service_txt_data[1].key = txt_item_keys[1];
+	service_txt_data[1].value = txt_if_type;
+	service_txt_data[2].key = txt_item_keys[2];
+	service_txt_data[2].value = app_desc->version;
+	
+	// Initialize service
+	ret = mdns_service_add(NULL, "_tcam-socket", "_tcp", CMD_PORT, service_txt_data, NUM_SERVICE_TXT_ITEMS);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Could not initialize mDNS service (%d)", ret);
+		return;
+	}
+	
+	ESP_LOGI(TAG, "mDNS started");
 }

@@ -8,7 +8,7 @@
  * This is done to eliminate the need for mutex protection, that could cause a 
  * dead-lock with another process also accessing a device via I2C.
  *
- * Copyright 2020-2022 Dan Julio
+ * Copyright 2020-2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -69,6 +69,7 @@
 #define PS_GUI_MAN_RANGE_MASK  0x02
 #define PS_GUI_METRIC_MASK     0x04
 #define PS_GUI_SPOT_EN_MASK    0x08
+#define PS_BUI_MIN_MAX_EN_MASK 0x10
 
 // Lepton state boolean flags
 #define PS_LEP_AGC_EN_MASK     0x01
@@ -292,6 +293,7 @@ void ps_get_gui_state(gui_state_t* state)
 	psP = (ps_gui_state_t*) &ps_shadow_buffer[ps_sub_regions.start_index[PS_REGION_GUI]];
 	
 	state->display_interp_enable = (psP->flags & PS_GUI_INTERP_EN_MASK) != 0;
+	state->min_max_enable = (psP->flags & PS_BUI_MIN_MAX_EN_MASK) != 0;
 	state->spotmeter_enable = (psP->flags & PS_GUI_SPOT_EN_MASK) != 0;
 	state->temp_unit_C = (psP->flags & PS_GUI_METRIC_MASK) != 0;
 	state->man_range_mode = (psP->flags & PS_GUI_MAN_RANGE_MASK) != 0;
@@ -312,6 +314,7 @@ void ps_set_gui_state(const gui_state_t* state)
 	psP = (ps_gui_state_t*) &ps_shadow_buffer[ps_sub_regions.start_index[PS_REGION_GUI]];
 	
 	psP->flags = (state->display_interp_enable ? PS_GUI_INTERP_EN_MASK : 0) |
+	             (state->min_max_enable ? PS_BUI_MIN_MAX_EN_MASK : 0) |
 	             (state->spotmeter_enable ? PS_GUI_SPOT_EN_MASK : 0) |
 	             (state->temp_unit_C ? PS_GUI_METRIC_MASK : 0) |
 	             (state->man_range_mode ? PS_GUI_MAN_RANGE_MASK : 0);

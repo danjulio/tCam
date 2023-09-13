@@ -416,10 +416,14 @@ void gui_screen_main_update_lep_image(int n)
 	render_lep_data(&lep_gui_buffer[n], gui_lep_canvas_buffer, &gui_st);
 	
 	// Update spot meter on image
-	if (gui_st.spotmeter_enable && gui_st.is_radiometric) {
+	if (gui_st.is_radiometric && gui_st.spotmeter_enable) {
 		render_spotmeter(&lep_gui_buffer[n], gui_lep_canvas_buffer);
 	}
-	lepton_img_dsc.data = (uint8_t*) gui_lep_canvas_buffer;
+	
+	// Update min/max markers on image
+	if (!gui_st.agc_enabled && gui_st.min_max_enable) {
+		render_min_max_markers(&lep_gui_buffer[n], gui_lep_canvas_buffer);
+	}
 	
 	// Update temps
 	update_colormap_temps(&lep_gui_buffer[n], false);

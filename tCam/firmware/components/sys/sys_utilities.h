@@ -4,7 +4,7 @@
  * Contains functions to initialize the system, other utility functions, a set
  * of globally available handles for the various tasks (to use for task notifications).
  *
- * Copyright 2020-2021 Dan Julio
+ * Copyright 2020-2023 Dan Julio
  *
  * This file is part of tCam.
  *
@@ -45,7 +45,11 @@
 typedef struct {
 	bool telem_valid;
 	uint16_t lep_min_val;
+	uint16_t lep_min_x;
+	uint16_t lep_min_y;
 	uint16_t lep_max_val;
+	uint16_t lep_max_x;
+	uint16_t lep_max_y;
 	uint16_t* lep_bufferP;
 	uint16_t* lep_telemP;
 	SemaphoreHandle_t mutex;
