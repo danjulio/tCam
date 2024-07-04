@@ -1,5 +1,5 @@
 ## ESP32-based Thermal Imaging Cameras
-tCam, tCam-Mini and tCam-POE are three cameras I designed around the ESP32 and Lepton 3.5.  They are designed to provide easy access to radiometric data from the Lepton.  Radiometric data is useful because it contains temperature information for each pixel in the camera's image allowing for all kinds of data analysis even if the image is stored to a file.
+tCam, tCam-Mini, tCam-POE and tCam-Eth are four cameras I designed around the ESP32 and Lepton 3.5.  They are designed to provide easy access to radiometric data from the Lepton.  Radiometric data is useful because it contains temperature information for each pixel in the camera's image allowing for all kinds of data analysis even if the image is stored to a file.
 
 This repository was created on Nov 6, 2022 from the ESP32 section of my original [Lepton](https://github.com/danjulio/lepton) repository to reduce the size of the portion of that directory that most people are interested in.
 
@@ -19,6 +19,10 @@ tCam-POE is a network only camera designed to work with hardwired POE connection
 
 ![tCam-POE](pictures/tcam_poe_side.png)
 
+### tCam-Eth
+tCam-Eth is a ethernet connected camera designed to be incorporated with other electronics.  It was designed as part the [FireTIRS](https://github.com/jthompson2710/FireTIRS) project but is made available as an open source hardware design.
+
+![tCam-Eth](pictures/tcam_eth.jpg)
 
 ### Desktop Application
 All three cameras share a common command set for remote access.  A companion Desktop computer application may be used to configure and access the cameras, download new firmware, as well as perform some analysis.
@@ -26,7 +30,7 @@ All three cameras share a common command set for remote access.  A companion Des
 ![Desktop Application](pictures/app_on_desktop.png)
 
 ### Android Application
-Connect, view and save images on an Android phone using the [Android App](https://play.google.com/store/apps/details?id=com.darcangel.tcamViewer) by [Jim Turner](https://darcangelsoftware.com/).  The APK may also be downloaded from, and issues logged to the [repo](https://github.com/yaturner/tcamViewer).
+Connect, view and save images on an Android phone using the [Android App](https://play.google.com/store/apps/details?id=com.danjuliodesigns.tcamViewer) by Jim Turner.  The source may be found at the [repo](https://github.com/yaturner/tcamViewer-DanJulio).
 
 ![Android App](pictures/android_app.png)
 

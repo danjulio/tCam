@@ -1,0 +1,46 @@
+Loadlist
+Exported from tcam_mini_eth_base.sch at 11/3/23 3:35 PM
+EAGLE Version 7.7.0 Copyright (c) 1988-2016 CadSoft
+Assembly variant: Rev 1
+
+Part     Value              Device           Package          Library           Sheet
+
+C1       10 uF              C-USSMT0603      C0603            djd_eagle_library 1
+C3       10 uF              C-USSMT0603      C0603            djd_eagle_library 1
+C5       10 uF              C-USSMT0603      C0603            djd_eagle_library 1
+C6       10 uF              C-USSMT0603      C0603            djd_eagle_library 1
+C7       10 uF              C-USSMT0603      C0603            djd_eagle_library 1
+
+C2       0.1 uF             C-USSMT0603      C0603            djd_eagle_library 1
+C4       0.1 uF             C-USSMT0603      C0603            djd_eagle_library 1
+C10      0.1 uF             C-USSMT0603      C0603            djd_eagle_library 1
+C11      0.1 uF             C-USSMT0603      C0603            djd_eagle_library 1
+
+C8       4700 pF            C-USSMT1210      C1210            djd_eagle_library 1
+C9       4700 pF            C-USSMT1210      C1210            djd_eagle_library 1
+
+CON1     54102-0164         MOLEX_54102_0164 MOLEX_54102_0164 djd_eagle_library 1
+
+J1       USB4105-GF-A       USB4105-GF-A     GCT_USB4105-GF-A USB4105-GF-A      1
+
+J2       SI-60001-F         SI-60001-F       BEL_SI-60001-F   SI-60001-F        1
+
+L1       2.2 uH             INDUCTORSMT1008  L1008            djd_eagle_library 1
+
+R1       5.1 kohm           R-USSMT0603      R0603            djd_eagle_library 1
+R2       5.1 kohm           R-USSMT0603      R0603            djd_eagle_library 1
+R3       5.1 kohm           R-USSMT0603      R0603            djd_eagle_library 1
+
+R4       10 kohm            R-USSMT0603      R0603            djd_eagle_library 1
+
+R5       43.5 kohm          R-USSMT0603      R0603            djd_eagle_library 1
+
+R6       0 ohm              R-USSMT0805      R0805            djd_eagle_library 1
+
+U1       CP2102N-A02-GQFN24 CP2102N_QFN24    QFN24            djd_eagle_library 1
+
+U2       TLV62568PDBV       TLV62568DBV      SOT23-5          djd_eagle_library 1
+
+U3       SP3002-04JTG       SP3002-04JTG     SOT65P220X95-6N  SP3002-04JTG      1
+
+U4       SP3002-04JTG       SP3002-04JTG     SOT65P220X95-6N  SP3002-04JTG      1
