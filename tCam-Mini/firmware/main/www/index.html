@@ -537,7 +537,12 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
     <div class="hint" id="tlsHint">The camera also serves this interface over HTTPS on port 443
       with a certificate it generated for itself (valid to 2050). Your browser will warn once
       per device because the certificate is self-signed — that is expected for a device with no
-      public name; accept it to continue.</div>
+      public name; accept it to continue.
+      <br><br><b>Video over HTTPS:</b> some browsers accept the certificate for pages and
+      settings but refuse to apply it to the encrypted video stream (WebSockets). If the
+      settings work over HTTPS but the image never appears, that is your browser's policy, not
+      a camera fault — use the HTTP address for viewing; the UI offers the switch
+      automatically.</div>
     <div class="row" id="tlsLinkRow" style="display:none;margin-top:10px">
       <button class="btn" id="tlsGo">Open the encrypted version</button>
     </div>
@@ -937,15 +942,24 @@ function connect(){
     $("substate").textContent="disconnected — retrying";
     if(hadOpened){ wsFails=0; }
     else{
-      // Failing before ever opening, on an https origin, is the signature of a
-      // certificate whose stored exception no longer matches (the camera reissued
-      // it).  Background retries never show the browser's warning page, so the
-      // user has to be told the one action that fixes it.
+      // Failing before ever opening, on an https origin, while the page's own
+      // API fetches succeed, means the browser is refusing to apply its
+      // certificate exception to WebSocket connections - a known limitation
+      // some browsers have with self-signed certificates.  No amount of
+      // re-accepting fixes it; the practical answer is the http origin, where
+      // the stream is unaffected.
       wsFails++;
       if(location.protocol==="https:" && wsFails===5){
-        $("substate").textContent="reload page to re-accept certificate";
-        toast("Secure connection is being refused — reload this page and accept "+
-              "the camera's certificate","err");
+        $("substate").textContent="browser blocks video over https here";
+        if(confirm("Your browser accepted the camera's certificate for this page, "+
+                   "but refuses to apply it to the encrypted video connection - a "+
+                   "known limitation with self-signed certificates and WebSockets.\n\n"+
+                   "Switch to the standard HTTP connection to get the video?")){
+          location.href="http://"+location.host+"/";
+        }else{
+          toast("Video is unavailable over HTTPS in this browser — the HTTP "+
+                "address streams normally","err");
+        }
       }
     }
     scheduleReconnect();

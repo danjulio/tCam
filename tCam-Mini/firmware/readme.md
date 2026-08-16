@@ -18,6 +18,12 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 4.6
+FW revision 4.6 handles browsers that refuse WebSockets to self-signed certificates.
+
+1. Diagnosis from the field: with the certificate accepted, pages and API calls complete over HTTPS, but some browsers refuse to apply the certificate exception to wss:// connections - so settings panels stay live while the video never arrives, and the camera logs a client fatal alert (-0x7780) at each reconnect attempt.  No amount of re-accepting fixes this; it is browser policy.
+2. The UI now detects the pattern (WebSocket refused before opening while on an https origin) and offers a one-tap switch to the HTTP origin, where streaming is unaffected.  The System tab documents the limitation.  The previous guidance ("reload and re-accept") was wrong for this state and is gone.
+
 #### FW 4.5
 FW revision 4.5 adds connection attribution to the log: UI page fetches log the
 client address and transport (http/https), and WebSocket connects log the peer
