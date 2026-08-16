@@ -18,6 +18,12 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 4.7
+FW revision 4.7 fixes peer attribution: with IPv6 enabled the server listens on
+an IPv6 socket and IPv4 clients arrive as v4-mapped addresses (::ffff:a.b.c.d),
+which the 4.5 logging did not decode - every peer printed as "unknown".  Page
+fetches and WebSocket connects now log real IPv4 addresses.
+
 #### FW 4.6
 FW revision 4.6 handles browsers that refuse WebSockets to self-signed certificates.
 

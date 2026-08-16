@@ -278,13 +278,33 @@ static esp_err_t ws_handler(httpd_req_t* req)
 		{
 			struct sockaddr_storage addr;
 			socklen_t alen = sizeof(addr);
+			bool logged = false;
 
-			if ((getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) &&
-			    (addr.ss_family == AF_INET)) {
-				struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
-				ESP_LOGI(TAG, "ws client %d connected from %s", fd,
-				         inet_ntoa(a4->sin_addr));
-			} else {
+			if (getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) {
+				if (addr.ss_family == AF_INET) {
+					struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
+					ESP_LOGI(TAG, "ws client %d connected from %s", fd,
+					         inet_ntoa(a4->sin_addr));
+					logged = true;
+				}
+#if CONFIG_LWIP_IPV6
+				// IPv4 clients arrive v4-mapped on the IPv6 listener (see
+				// peer_str in web_task)
+				else if (addr.ss_family == AF_INET6) {
+					const uint8_t* b = (const uint8_t*)
+						&((struct sockaddr_in6*) &addr)->sin6_addr;
+					int i, zeros = 1;
+
+					for (i = 0; i < 10; i++) if (b[i] != 0) zeros = 0;
+					if (zeros && (b[10] == 0xFF) && (b[11] == 0xFF)) {
+						ESP_LOGI(TAG, "ws client %d connected from %d.%d.%d.%d",
+						         fd, b[12], b[13], b[14], b[15]);
+						logged = true;
+					}
+				}
+#endif
+			}
+			if (!logged) {
 				ESP_LOGI(TAG, "ws client %d connected", fd);
 			}
 		}

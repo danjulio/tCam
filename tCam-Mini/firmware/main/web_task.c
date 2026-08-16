@@ -369,6 +369,25 @@ static void peer_str(int fd, char* out, size_t out_len)
 			         (int) ntohs(a4->sin_port));
 			return;
 		}
+#if CONFIG_LWIP_IPV6
+		// With IPv6 enabled the server listens on an IPv6 socket, and IPv4
+		// clients arrive as v4-mapped addresses (::ffff:a.b.c.d).  This is the
+		// common case, not the exception - missing it made every peer "unknown".
+		if (addr.ss_family == AF_INET6) {
+			struct sockaddr_in6* a6 = (struct sockaddr_in6*) &addr;
+			const uint8_t* b = (const uint8_t*) &a6->sin6_addr;
+			int i, zeros = 1;
+
+			for (i = 0; i < 10; i++) if (b[i] != 0) zeros = 0;
+			if (zeros && (b[10] == 0xFF) && (b[11] == 0xFF)) {
+				snprintf(out, out_len, "%d.%d.%d.%d:%d", b[12], b[13], b[14], b[15],
+				         (int) ntohs(a6->sin6_port));
+				return;
+			}
+			snprintf(out, out_len, "ipv6 peer");
+			return;
+		}
+#endif
 	}
 	snprintf(out, out_len, "unknown");
 }
