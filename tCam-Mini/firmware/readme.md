@@ -18,6 +18,12 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 4.3
+FW revision 4.3 makes the TLS certificate stable for the camera's life.
+
+1. The certificate is no longer reissued when the camera's address changes.  Browsers store the self-signed-certificate exception against the exact certificate bytes, so every DHCP change voided every stored acceptance - producing a fresh warning per address and leaving stale open pages hammering the camera with silently rejected handshakes (the repeating -0x7780 in the log).  The certificate is now bound to the camera name only and issued once.
+2. The web UI backs off its reconnect attempts toward 30 seconds, stops status polling while its tab is hidden, and - when a secure connection is refused before ever opening - tells the user the one action that fixes it: reload the page and re-accept the certificate.
+
 #### FW 4.2
 FW revision 4.2 reverts the PSRAM overclock from 4.1 and restores TLS failure diagnostics.
 

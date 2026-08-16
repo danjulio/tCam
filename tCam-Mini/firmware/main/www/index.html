@@ -568,7 +568,7 @@ var PALETTES = {
 };
 
 /* ============================== state ============================== */
-var ws=null, wsOK=false, reconnectTimer=null;
+var ws=null, wsOK=false, reconnectTimer=null, reconnectDelay=2000, wsFails=0;
 var cv=document.getElementById("cv"), ctx=cv.getContext("2d");
 var lut=new Uint8Array(256*3);
 var raw=null, lastJson=null, lastBin=null;
@@ -908,6 +908,8 @@ function connect(){
 
   ws.onopen=function(){
     wsOK=true;
+    reconnectDelay=2000;
+    wsFails=0;
     $("dot").className="on";
     $("substate").textContent="connected";
     send("get_status"); send("get_config"); send("get_wifi");
@@ -929,9 +931,23 @@ function connect(){
   };
 
   ws.onclose=function(){
+    var hadOpened=wsOK;
     wsOK=false;
     $("dot").className="";
     $("substate").textContent="disconnected — retrying";
+    if(hadOpened){ wsFails=0; }
+    else{
+      // Failing before ever opening, on an https origin, is the signature of a
+      // certificate whose stored exception no longer matches (the camera reissued
+      // it).  Background retries never show the browser's warning page, so the
+      // user has to be told the one action that fixes it.
+      wsFails++;
+      if(location.protocol==="https:" && wsFails===5){
+        $("substate").textContent="reload page to re-accept certificate";
+        toast("Secure connection is being refused — reload this page and accept "+
+              "the camera's certificate","err");
+      }
+    }
     scheduleReconnect();
   };
   ws.onerror=function(){};
@@ -939,7 +955,10 @@ function connect(){
 
 function scheduleReconnect(){
   clearTimeout(reconnectTimer);
-  reconnectTimer=setTimeout(connect,2000);
+  reconnectTimer=setTimeout(connect,reconnectDelay);
+  // Back off toward 30 s so a stale background tab does not hammer the camera
+  // (and fill its log) forever; onopen resets the delay
+  reconnectDelay=Math.min(30000,Math.round(reconnectDelay*1.7));
 }
 
 function applyStatus(s){
@@ -1671,6 +1690,10 @@ function applyLink(d){
 }
 
 function pollStatus(){
+  // A hidden tab has no business polling - it cannot show the result, and a tab
+  // left open against a camera that now refuses its certificate would otherwise
+  // hit it every five seconds indefinitely
+  if(document.hidden) return;
   fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
     if(d.camera){ $("camname").textContent=d.camera; document.title=d.camera; }
     $("iVer").textContent=d.version||"--";

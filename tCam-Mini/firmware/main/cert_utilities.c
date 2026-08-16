@@ -51,8 +51,18 @@
 // invalidates every previously stored certificate, which is how a change to the
 // generation code (new extensions, different key type) gets rolled out to
 // cameras that already have one.
+//
+// The identity is deliberately the camera NAME only, not its address.  Browsers
+// store the "proceed anyway" exception for a self-signed certificate against the
+// exact certificate bytes, so reissuing whenever DHCP hands out a new address
+// voids every stored exception - each address change produced a fresh warning,
+// and any page still open in the background hammered the camera with rejected
+// handshakes it had no way to explain.  A certificate that never changes keeps
+// the one-time acceptance working for the camera's whole life; the address in
+// its SAN is merely whatever it was at issue time, and a mismatch there changes
+// nothing for a certificate the browser already treats as untrusted.
 #define CERT_NVS_IDENT_KEY "ident"
-#define CERT_FORMAT_VERSION 2
+#define CERT_FORMAT_VERSION 3
 #define CERT_IDENT_MAX_LEN 64
 
 #define CERT_PEM_MAX_LEN   2048
@@ -129,8 +139,7 @@ bool cert_get(const char* host, const unsigned char* ip4,
 	strncpy(cert_host, (host != NULL) ? host : "tCam-Mini", PS_SSID_MAX_LEN);
 	cert_host[PS_SSID_MAX_LEN] = 0;
 	memcpy(cert_ip, ip4, 4);
-	snprintf(cert_ident, sizeof(cert_ident), "%d|%s|%d.%d.%d.%d", CERT_FORMAT_VERSION,
-	         cert_host, cert_ip[0], cert_ip[1], cert_ip[2], cert_ip[3]);
+	snprintf(cert_ident, sizeof(cert_ident), "%d|%s", CERT_FORMAT_VERSION, cert_host);
 
 	if (cert_buf == NULL) {
 		if (!cert_load_from_nvs()) {
