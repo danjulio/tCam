@@ -1744,6 +1744,12 @@ document.addEventListener("visibilitychange",wakeOn);
 document.addEventListener("pointerdown",wakeOn);
 
 /* ============================== boot ============================== */
+// WebSocket keepalive: with the stream paused nothing flows on the socket, and
+// the camera's connection manager treats a silent socket as evictable when the
+// browser opens new HTTP connections.  A tiny periodic command keeps it marked
+// active (and refreshes the System tab for free).
+setInterval(function(){ if(wsOK && !streaming) send("get_status"); },25000);
+
 wakeOn();
 pollStatus();
 // Cheap: a few hundred bytes every five seconds, next to 53 KB image frames

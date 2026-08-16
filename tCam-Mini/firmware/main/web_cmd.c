@@ -144,6 +144,16 @@ int web_cmd_send(char* buf, int len)
 
 	ret = httpd_ws_send_frame_async(hd, fd, &frame);
 
+	// Mark the socket as freshly used.  httpd's LRU purge only counts a socket
+	// as active when it RECEIVES a request, and a streaming WebSocket is almost
+	// pure outbound - so without this, every frame-carrying socket looked idle
+	// and was the first thing evicted whenever the browser opened a new HTTP
+	// connection (status polls, icons), killing the stream while the settings
+	// stayed perfectly live.
+	if (ret == ESP_OK) {
+		httpd_sess_update_lru_counter(hd, fd);
+	}
+
 	xSemaphoreGive(web_mutex);
 
 	if (ret != ESP_OK) {
@@ -182,6 +192,11 @@ int web_cmd_send_binary(char* buf, int len)
 	frame.final   = true;
 
 	ret = httpd_ws_send_frame_async(hd, fd, &frame);
+
+	// Keep the streaming socket off the LRU chopping block (see web_cmd_send)
+	if (ret == ESP_OK) {
+		httpd_sess_update_lru_counter(hd, fd);
+	}
 
 	xSemaphoreGive(web_mutex);
 

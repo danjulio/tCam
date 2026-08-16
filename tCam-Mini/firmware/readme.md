@@ -18,6 +18,11 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 4.4
+FW revision 4.4 fixes the stream dying while the settings stayed live.
+
+1. The HTTP server's least-recently-used purge only counts a socket as active when it receives a request, and the streaming WebSocket is almost pure outbound - so whenever the browser opened a new HTTP connection (the 5 s status poll, the app icons), the frame-carrying socket looked idle and was evicted first.  Symptom: image gone, "disconnected - retrying", while every HTTP-backed panel stayed perfectly live.  Every outbound frame now refreshes the socket's activity counter, and the UI sends a small keepalive while the stream is paused.
+
 #### FW 4.3
 FW revision 4.3 makes the TLS certificate stable for the camera's life.
 
