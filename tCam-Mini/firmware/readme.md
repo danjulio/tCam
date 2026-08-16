@@ -18,6 +18,12 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 4.5
+FW revision 4.5 adds connection attribution to the log: UI page fetches log the
+client address and transport (http/https), and WebSocket connects log the peer
+address.  When something on the network misbehaves against the camera, the log
+now names an address instead of leaving the operator guessing which device.
+
 #### FW 4.4
 FW revision 4.4 fixes the stream dying while the settings stayed live.
 

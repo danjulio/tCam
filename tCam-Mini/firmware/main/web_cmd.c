@@ -275,7 +275,19 @@ static esp_err_t ws_handler(httpd_req_t* req)
 
 		init_command_processor();
 		web_cmd_set_client(req->handle, fd);
-		ESP_LOGI(TAG, "ws client %d connected", fd);
+		{
+			struct sockaddr_storage addr;
+			socklen_t alen = sizeof(addr);
+
+			if ((getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) &&
+			    (addr.ss_family == AF_INET)) {
+				struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
+				ESP_LOGI(TAG, "ws client %d connected from %s", fd,
+				         inet_ntoa(a4->sin_addr));
+			} else {
+				ESP_LOGI(TAG, "ws client %d connected", fd);
+			}
+		}
 		return ESP_OK;
 	}
 

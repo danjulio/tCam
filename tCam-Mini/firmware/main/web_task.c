@@ -351,8 +351,40 @@ static void start_https_server()
 }
 
 
+/**
+ * Format the remote end of a request's socket as "a.b.c.d:port".  Diagnostic
+ * aid: when something on the network misbehaves against the camera, the log
+ * should name an address, not leave the operator guessing which device it is.
+ */
+static void peer_str(int fd, char* out, size_t out_len)
+{
+	struct sockaddr_storage addr;
+	socklen_t alen = sizeof(addr);
+
+	out[0] = 0;
+	if (getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) {
+		if (addr.ss_family == AF_INET) {
+			struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
+			snprintf(out, out_len, "%s:%d", inet_ntoa(a4->sin_addr),
+			         (int) ntohs(a4->sin_port));
+			return;
+		}
+	}
+	snprintf(out, out_len, "unknown");
+}
+
+
 static esp_err_t index_get_handler(httpd_req_t* req)
 {
+	char peer[32];
+
+	// Page loads are rare and identifying - log who is using the camera and on
+	// which transport, so the log can distinguish the operator's devices from
+	// anything else on the network poking at the server
+	peer_str(httpd_req_to_sockfd(req), peer, sizeof(peer));
+	ESP_LOGI(TAG, "UI page fetched by %s over %s", peer,
+	         (req->handle == servers) ? "https" : "http");
+
 	httpd_resp_set_type(req, "text/html");
 	httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
 	// The UI ships with the firmware, so it is safe to cache until the next update
