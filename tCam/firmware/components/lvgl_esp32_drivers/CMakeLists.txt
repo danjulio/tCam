@@ -1,0 +1,1 @@
+idf_component_register(INCLUDE_DIRS lvgl_tft lvgl_touch)

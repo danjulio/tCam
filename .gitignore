@@ -1,0 +1,4 @@
+tCam/firmware/build/
+tCam-Mini/firmware/build/
+python/examples/__pycache__
+python/palettes/__pycache__
