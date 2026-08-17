@@ -22,6 +22,27 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.8
+FW revision 6.8 lets every connected browser view at once, and fixes a
+range-arithmetic bug that rejected the emissivity setting.
+
+1. Multi-viewer streaming.  Up to four browsers now connect simultaneously and
+all receive the image stream; any of them may issue commands.  The single-owner
+session model - inherited from the TCP protocol and the source of both the
+6.6 session tug-of-war and 6.7's "camera in use" refusals between one user's
+own devices - is gone for browsers.  The legacy json TCP client remains
+exclusive with browser clients (one shared command parser).  Failed sends drop
+just that viewer; browsers reconnect on their own.  WebSocket connect logs now
+say ws (http) or wss (https), so the log shows which transport a viewer used.
+2. Setting emissivity to 1% put the Lepton's scene-emissivity parameter one
+count below its documented minimum (integer truncation: 1% of 8192 = 81, the
+floor is 82), so the sensor rejected the whole radiometry parameter block with
+LEP_ERROR_RANGE (-3) at every boot and the setting silently never applied.  The
+scale now rounds up; every percentage 1-100 lands in range.  If a camera's
+stored emissivity reads 1%, re-apply the intended value from the Camera tab.
+3. Housekeeping: 6.7's release script wrote its version stamp to the wrong
+path, so 6.7 reported itself as 6.6 while carrying 6.7 code; removed.
+
 #### FW 6.7
 FW revision 6.7 stops a second viewer from tearing the stream away from the
 first.

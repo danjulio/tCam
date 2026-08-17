@@ -112,6 +112,15 @@ static int count_connections(httpd_handle_t hd);
 
 
 //
+// Web Task shared helpers
+//
+bool web_handle_is_https(httpd_handle_t hd)
+{
+	return (servers != NULL) && (hd == servers);
+}
+
+
+//
 // Web Task API
 //
 void web_task()

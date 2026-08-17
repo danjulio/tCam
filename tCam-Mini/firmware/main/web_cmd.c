@@ -3,6 +3,13 @@
  *
  * See web_cmd.h for a description of this module's role.
  *
+ * Every connected browser receives the image stream and may issue commands.
+ * The single-owner model this replaced turned two open tabs into a fight: each
+ * newcomer either stole the session (killing the other viewer's stream) or was
+ * refused outright.  A camera on the wall should simply show its picture to
+ * whoever asks.  The legacy json TCP client remains exclusive with browser
+ * clients, as the two protocols share one command processor state machine.
+ *
  * Copyright 2020-2022 Dan Julio
  *
  * This file is part of tCam.
@@ -22,6 +29,7 @@
  *
  */
 #include "web_cmd.h"
+#include "web_task.h"
 #include "client_if.h"
 #include "cmd_utilities.h"
 #include "system_config.h"
@@ -41,34 +49,48 @@
 // chunks (OTA is a plain HTTP POST), so this only has to hold a command object.
 #define WEB_CMD_MAX_RX_LEN 2048
 
+// Simultaneous browser viewers.  Each costs one socket on its server instance
+// (WEB_MAX_SOCKETS bounds that side) plus ~39KB/frame of send work; four is
+// generous for a hand-held thermal camera without inviting a crowd.
+#define WEB_CMD_MAX_CLIENTS 4
+
+
+//
+// Web Command types
+//
+typedef struct {
+	httpd_handle_t hd;
+	int fd;                    // < 0 = free slot
+	bool first_frame_logged;
+} ws_client_t;
+
 
 //
 // Web Command variables
 //
 static const char* TAG = "web_cmd";
 
-// Serialises access to the client identity and to the outbound socket.  rsp_task
-// sends image and command responses while the server task services control frames.
+// Serialises access to the client table and to outbound sends.  rsp_task sends
+// image frames and command responses while the server tasks service inbound
+// frames and connection teardown.
 static SemaphoreHandle_t web_mutex = NULL;
 
-// Identity of the browser holding the session; ws_fd < 0 means no client
-static httpd_handle_t ws_hd = NULL;
-static int ws_fd = -1;
+// Serialises the shared command parser.  The HTTP and HTTPS instances run on
+// separate server tasks, so two clients' commands could otherwise interleave
+// mid-parse.
+static SemaphoreHandle_t cmd_mutex = NULL;
 
-// One announcement per connection when the first image frame actually goes out.
-// The stream failing is otherwise invisible from the camera side: every stage
-// before the socket looks identical whether the browser is rendering frames or
-// showing a black rectangle.
-static bool first_frame_logged = false;
-static bool first_cmd_logged = false;
+static ws_client_t clients[WEB_CMD_MAX_CLIENTS];
 
 
 //
 // Web Command forward declarations
 //
 static esp_err_t ws_handler(httpd_req_t* req);
-static void web_cmd_set_client(httpd_handle_t hd, int fd);
-static void web_cmd_clear_client();
+static int find_client(int fd);
+static bool add_client(httpd_handle_t hd, int fd);
+static void remove_client_locked(int idx);
+static void log_ws_peer(httpd_handle_t hd, int fd);
 
 
 //
@@ -76,11 +98,19 @@ static void web_cmd_clear_client();
 //
 void web_cmd_init()
 {
+	int i;
+
 	if (web_mutex == NULL) {
 		web_mutex = xSemaphoreCreateMutex();
 	}
-	ws_hd = NULL;
-	ws_fd = -1;
+	if (cmd_mutex == NULL) {
+		cmd_mutex = xSemaphoreCreateMutex();
+	}
+	for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+		clients[i].hd = NULL;
+		clients[i].fd = -1;
+		clients[i].first_frame_logged = false;
+	}
 }
 
 
@@ -100,26 +130,81 @@ esp_err_t web_cmd_register(httpd_handle_t server)
 
 bool web_cmd_connected()
 {
-	bool up;
+	bool up = false;
+	int i;
 
 	// rsp_task polls the client state from the moment it starts, which can be
 	// before the web server task has run, so this must be safe pre-init
 	if (web_mutex == NULL) return false;
 
 	xSemaphoreTake(web_mutex, portMAX_DELAY);
-	up = (ws_fd >= 0);
+	for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+		if (clients[i].fd >= 0) {
+			up = true;
+			break;
+		}
+	}
 	xSemaphoreGive(web_mutex);
 
 	return up;
 }
 
 
+/**
+ * Broadcast a frame to every connected browser.  A client whose socket fails is
+ * dropped on the spot - browsers reconnect by themselves.  Returns the payload
+ * length if at least one client received it, else -1.
+ */
+static int broadcast(httpd_ws_frame_t* frame)
+{
+	bool any_left = false;
+	int i;
+	int sent = 0;
+
+	if (web_mutex == NULL) return -1;
+
+	xSemaphoreTake(web_mutex, portMAX_DELAY);
+
+	for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+		if (clients[i].fd < 0) continue;
+
+		if (httpd_ws_send_frame_async(clients[i].hd, clients[i].fd, frame) == ESP_OK) {
+			// Mark the socket as freshly used.  httpd's LRU purge only counts a
+			// socket as active when it RECEIVES a request, and a streaming
+			// WebSocket is almost pure outbound - without this, every
+			// frame-carrying socket looked idle and was the first thing evicted
+			// whenever the browser opened a new HTTP connection.
+			httpd_sess_update_lru_counter(clients[i].hd, clients[i].fd);
+			if ((frame->type == HTTPD_WS_TYPE_BINARY) && !clients[i].first_frame_logged) {
+				clients[i].first_frame_logged = true;
+				ESP_LOGI(TAG, "First image frame sent to ws client %d (%d bytes)",
+				         clients[i].fd, (int) frame->len);
+			}
+			sent++;
+		} else {
+			ESP_LOGI(TAG, "ws client %d dropped (send failed)", clients[i].fd);
+			remove_client_locked(i);
+		}
+	}
+
+	for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+		if (clients[i].fd >= 0) any_left = true;
+	}
+
+	xSemaphoreGive(web_mutex);
+
+	// Release outside the table lock; client_if has its own mutex
+	if (!any_left && (sent == 0)) {
+		client_if_release(CLIENT_IF_WS);
+	}
+
+	return (sent > 0) ? (int) frame->len : -1;
+}
+
+
 int web_cmd_send(char* buf, int len)
 {
-	esp_err_t ret;
 	httpd_ws_frame_t frame;
-	httpd_handle_t hd;
-	int fd;
 
 	// The response arrives wrapped in the sentinel bytes the raw TCP transport
 	// needs.  A WebSocket message is already delimited, so hand the browser clean
@@ -132,16 +217,6 @@ int web_cmd_send(char* buf, int len)
 		len--;
 	}
 	if (len <= 0) return 0;
-	if (web_mutex == NULL) return -1;
-
-	xSemaphoreTake(web_mutex, portMAX_DELAY);
-	hd = ws_hd;
-	fd = ws_fd;
-
-	if (fd < 0) {
-		xSemaphoreGive(web_mutex);
-		return -1;
-	}
 
 	memset(&frame, 0, sizeof(frame));
 	frame.type    = HTTPD_WS_TYPE_TEXT;
@@ -149,48 +224,15 @@ int web_cmd_send(char* buf, int len)
 	frame.len     = len;
 	frame.final   = true;
 
-	ret = httpd_ws_send_frame_async(hd, fd, &frame);
-
-	// Mark the socket as freshly used.  httpd's LRU purge only counts a socket
-	// as active when it RECEIVES a request, and a streaming WebSocket is almost
-	// pure outbound - so without this, every frame-carrying socket looked idle
-	// and was the first thing evicted whenever the browser opened a new HTTP
-	// connection (status polls, icons), killing the stream while the settings
-	// stayed perfectly live.
-	if (ret == ESP_OK) {
-		httpd_sess_update_lru_counter(hd, fd);
-	}
-
-	xSemaphoreGive(web_mutex);
-
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "ws send failed (%d)", ret);
-		web_cmd_clear_client();
-		return -1;
-	}
-
-	return len;
+	return broadcast(&frame);
 }
 
 
 int web_cmd_send_binary(char* buf, int len)
 {
-	esp_err_t ret;
 	httpd_ws_frame_t frame;
-	httpd_handle_t hd;
-	int fd;
 
 	if (len <= 0) return 0;
-	if (web_mutex == NULL) return -1;
-
-	xSemaphoreTake(web_mutex, portMAX_DELAY);
-	hd = ws_hd;
-	fd = ws_fd;
-
-	if (fd < 0) {
-		xSemaphoreGive(web_mutex);
-		return -1;
-	}
 
 	memset(&frame, 0, sizeof(frame));
 	frame.type    = HTTPD_WS_TYPE_BINARY;
@@ -198,43 +240,30 @@ int web_cmd_send_binary(char* buf, int len)
 	frame.len     = len;
 	frame.final   = true;
 
-	ret = httpd_ws_send_frame_async(hd, fd, &frame);
-
-	// Keep the streaming socket off the LRU chopping block (see web_cmd_send)
-	if (ret == ESP_OK) {
-		httpd_sess_update_lru_counter(hd, fd);
-	}
-
-	xSemaphoreGive(web_mutex);
-
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "ws binary send failed (%d)", ret);
-		web_cmd_clear_client();
-		return -1;
-	}
-
-	if (!first_frame_logged) {
-		first_frame_logged = true;
-		ESP_LOGI(TAG, "First image frame sent to ws client %d (%d bytes)", fd, len);
-	}
-
-	return len;
+	return broadcast(&frame);
 }
 
 
 void web_cmd_close_fn(httpd_handle_t hd, int sockfd)
 {
-	bool was_client;
+	bool any_left = false;
+	int i, idx;
 
 	(void) hd;
 
 	xSemaphoreTake(web_mutex, portMAX_DELAY);
-	was_client = ((sockfd == ws_fd) && (ws_fd >= 0));
+	idx = find_client(sockfd);
+	if (idx >= 0) {
+		ESP_LOGI(TAG, "ws client %d closed", sockfd);
+		remove_client_locked(idx);
+	}
+	for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+		if (clients[i].fd >= 0) any_left = true;
+	}
 	xSemaphoreGive(web_mutex);
 
-	if (was_client) {
-		ESP_LOGI(TAG, "ws client %d closed", sockfd);
-		web_cmd_clear_client();
+	if ((idx >= 0) && !any_left) {
+		client_if_release(CLIENT_IF_WS);
 	}
 
 	// Perform the default teardown the server would otherwise have done
@@ -245,40 +274,91 @@ void web_cmd_close_fn(httpd_handle_t hd, int sockfd)
 //
 // Web Command internal functions
 //
-static void web_cmd_set_client(httpd_handle_t hd, int fd)
+
+/**
+ * Index of fd in the table, -1 if absent.  Call with web_mutex held.
+ */
+static int find_client(int fd)
 {
-	xSemaphoreTake(web_mutex, portMAX_DELAY);
-	ws_hd = hd;
-	ws_fd = fd;
-	first_frame_logged = false;
-	first_cmd_logged = false;
-	xSemaphoreGive(web_mutex);
+	int i;
+
+	for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+		if (clients[i].fd == fd) return i;
+	}
+	return -1;
 }
 
 
-static void web_cmd_clear_client()
+static void remove_client_locked(int idx)
 {
-	xSemaphoreTake(web_mutex, portMAX_DELAY);
-	ws_hd = NULL;
-	ws_fd = -1;
-	xSemaphoreGive(web_mutex);
-
-	client_if_release(CLIENT_IF_WS);
+	clients[idx].hd = NULL;
+	clients[idx].fd = -1;
+	clients[idx].first_frame_logged = false;
 }
 
 
 /**
- * Log which peer just took the WebSocket session
+ * Admit a new browser.  Fails when the legacy TCP client holds the command
+ * session or when the table is full.
  */
-static void log_ws_peer(int fd)
+static bool add_client(httpd_handle_t hd, int fd)
 {
+	bool first = true;
+	bool ok = false;
+	int i;
+
+	xSemaphoreTake(web_mutex, portMAX_DELAY);
+
+	for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+		if (clients[i].fd >= 0) first = false;
+	}
+
+	// The whole browser population holds ONE client_if claim; the arbitration
+	// that matters is browsers-versus-TCP, not browser-versus-browser
+	if (!first || client_if_claim(CLIENT_IF_WS)) {
+		for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+			if (clients[i].fd < 0) {
+				clients[i].hd = hd;
+				clients[i].fd = fd;
+				clients[i].first_frame_logged = false;
+				ok = true;
+				break;
+			}
+		}
+		if (!ok && first) {
+			client_if_release(CLIENT_IF_WS);
+		}
+	}
+
+	xSemaphoreGive(web_mutex);
+
+	if (ok) {
+		if (first) {
+			// One shared parser for all browsers; reset it as the population starts
+			init_command_processor();
+		}
+		log_ws_peer(hd, fd);
+	} else {
+		ESP_LOGW(TAG, "Refusing ws client %d (%s)", fd,
+		         first ? "TCP client holds the session" : "viewer limit reached");
+	}
+	return ok;
+}
+
+
+/**
+ * Log which peer just joined, and on which transport
+ */
+static void log_ws_peer(httpd_handle_t hd, int fd)
+{
+	const char* proto = web_handle_is_https(hd) ? "wss" : "ws";
 	struct sockaddr_storage addr;
 	socklen_t alen = sizeof(addr);
 
 	if (getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) {
 		if (addr.ss_family == AF_INET) {
 			struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
-			ESP_LOGI(TAG, "ws client %d connected from %s", fd,
+			ESP_LOGI(TAG, "%s client %d connected from %s", proto, fd,
 			         inet_ntoa(a4->sin_addr));
 			return;
 		}
@@ -292,32 +372,14 @@ static void log_ws_peer(int fd)
 
 			for (i = 0; i < 10; i++) if (b[i] != 0) zeros = 0;
 			if (zeros && (b[10] == 0xFF) && (b[11] == 0xFF)) {
-				ESP_LOGI(TAG, "ws client %d connected from %d.%d.%d.%d",
-				         fd, b[12], b[13], b[14], b[15]);
+				ESP_LOGI(TAG, "%s client %d connected from %d.%d.%d.%d",
+				         proto, fd, b[12], b[13], b[14], b[15]);
 				return;
 			}
 		}
 #endif
 	}
-	ESP_LOGI(TAG, "ws client %d connected", fd);
-}
-
-
-/**
- * Claim the command session for the socket a frame just arrived on.  Returns
- * false if a different client (the json TCP port) holds it.
- */
-static bool ws_take_session(httpd_handle_t hd, int fd)
-{
-	if (!client_if_claim(CLIENT_IF_WS)) {
-		ESP_LOGW(TAG, "Refusing ws client %d - another client holds the session", fd);
-		return false;
-	}
-
-	init_command_processor();
-	web_cmd_set_client(hd, fd);
-	log_ws_peer(fd);
-	return true;
+	ESP_LOGI(TAG, "%s client %d connected", proto, fd);
 }
 
 
@@ -326,17 +388,17 @@ static esp_err_t ws_handler(httpd_req_t* req)
 	char delim;
 	esp_err_t ret;
 	httpd_ws_frame_t frame;
-	int fd;
+	int fd, idx;
 	static uint8_t rx_buf[WEB_CMD_MAX_RX_LEN + 1];
 
 	fd = httpd_req_to_sockfd(req);
 
-	// IDF 4.4 invoked this handler for the handshake GET, and the session used
-	// to be claimed here.  Kept for compatibility, but note IDF 5 does NOT take
-	// this path - see below.
+	// IDF 4.4 invoked this handler for the handshake GET; IDF 5 completes the
+	// handshake internally and never calls it for the upgrade (httpd_uri.c: "If
+	// the request is websocket handshake, then do not call the uri->handler"),
+	// so admission normally happens at the first data frame below.
 	if (req->method == HTTP_GET) {
-		if (!ws_take_session(req->handle, fd)) {
-			// 503 tells the UI to show "camera in use" rather than retrying forever
+		if (!add_client(req->handle, fd)) {
 			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
 			                    "Camera is in use by another client");
 			return ESP_FAIL;
@@ -344,63 +406,25 @@ static esp_err_t ws_handler(httpd_req_t* req)
 		return ESP_OK;
 	}
 
-	// In IDF 5 the server completes the WebSocket handshake internally and
-	// deliberately never invokes the URI handler for the upgrade GET
-	// (httpd_uri.c: "If the request is websocket handshake, then do not call
-	// the uri->handler").  The first data frame is therefore the first time
-	// this code learns a client exists - the session must be claimed here.
-	// Under the old assumption the ownership check below simply rejected every
-	// frame from a client no code had registered, so the server closed each
-	// socket after its first command: the browser showed "connected" (the
-	// handshake IS completed), then lost the link two seconds later, forever.
-	if (fd != ws_fd) {
-		// A newcomer must not tear the session away from a live viewer.  When
-		// claim-on-first-frame simply took over, two open tabs fought forever:
-		// each steal killed the other viewer's stream, its reconnect stole it
-		// back, and neither ever held the camera for more than seconds.  Probe
-		// the current owner; only a dead one is displaced.
-		if (ws_fd >= 0) {
-			esp_err_t alive;
-			httpd_handle_t ohd;
-			int ofd;
-			httpd_ws_frame_t ping;
+	xSemaphoreTake(web_mutex, portMAX_DELAY);
+	idx = find_client(fd);
+	xSemaphoreGive(web_mutex);
 
-			memset(&ping, 0, sizeof(ping));
-			ping.type = HTTPD_WS_TYPE_PING;
-			ping.final = true;
+	if (idx < 0) {
+		if (!add_client(req->handle, fd)) {
+			// Only the legacy TCP protocol or a full house refuses a browser now;
+			// say so on the socket before closing it (the UI shows it as a toast)
+			static const char busy_msg[] =
+				"{\"cam_info\":{\"info_value\":0,"
+				"\"info_string\":\"Camera is in use by another client\"}}";
+			httpd_ws_frame_t busy;
 
-			xSemaphoreTake(web_mutex, portMAX_DELAY);
-			ohd = ws_hd;
-			ofd = ws_fd;
-			alive = (ofd >= 0) ? httpd_ws_send_frame_async(ohd, ofd, &ping)
-			                   : ESP_FAIL;
-			xSemaphoreGive(web_mutex);
-
-			if (alive == ESP_OK) {
-				// Owner is live: tell this client why it gets nothing, then
-				// close it.  The UI surfaces cam_info strings as a toast.
-				static const char busy_msg[] =
-					"{\"cam_info\":{\"info_value\":0,"
-					"\"info_string\":\"Camera is in use by another viewer\"}}";
-				httpd_ws_frame_t busy;
-
-				memset(&busy, 0, sizeof(busy));
-				busy.type = HTTPD_WS_TYPE_TEXT;
-				busy.payload = (uint8_t*) busy_msg;
-				busy.len = sizeof(busy_msg) - 1;
-				busy.final = true;
-				(void) httpd_ws_send_frame(req, &busy);
-
-				ESP_LOGW(TAG, "Refusing ws client %d - session held by live client %d",
-				         fd, ofd);
-				return ESP_FAIL;
-			}
-
-			// Owner did not survive the probe - reap it and let this one in
-			ESP_LOGI(TAG, "ws client %d displaced dead client %d", fd, ofd);
-			web_cmd_clear_client();
-		}
-		if (!ws_take_session(req->handle, fd)) {
+			memset(&busy, 0, sizeof(busy));
+			busy.type = HTTPD_WS_TYPE_TEXT;
+			busy.payload = (uint8_t*) busy_msg;
+			busy.len = sizeof(busy_msg) - 1;
+			busy.final = true;
+			(void) httpd_ws_send_frame(req, &busy);
 			return ESP_FAIL;
 		}
 	}
@@ -429,7 +453,24 @@ static esp_err_t ws_handler(httpd_req_t* req)
 	}
 
 	if (frame.type == HTTPD_WS_TYPE_CLOSE) {
-		web_cmd_clear_client();
+		// Remove from the table only - the server owns the socket teardown on
+		// this path (close_fn handles the case where the TCP side just dies)
+		bool any_left = false;
+		int i;
+
+		xSemaphoreTake(web_mutex, portMAX_DELAY);
+		idx = find_client(fd);
+		if (idx >= 0) {
+			ESP_LOGI(TAG, "ws client %d said goodbye", fd);
+			remove_client_locked(idx);
+		}
+		for (i = 0; i < WEB_CMD_MAX_CLIENTS; i++) {
+			if (clients[i].fd >= 0) any_left = true;
+		}
+		xSemaphoreGive(web_mutex);
+		if ((idx >= 0) && !any_left) {
+			client_if_release(CLIENT_IF_WS);
+		}
 		return ESP_OK;
 	}
 
@@ -438,16 +479,11 @@ static esp_err_t ws_handler(httpd_req_t* req)
 		return ESP_OK;
 	}
 
-	// One line for the first inbound command, so the log distinguishes "browser
-	// connected but sent nothing" from "commands flowed but streaming never began"
-	if (!first_cmd_logged) {
-		first_cmd_logged = true;
-		ESP_LOGI(TAG, "First command received from ws client %d (%d bytes)",
-		         fd, (int) frame.len);
-	}
-
 	// Re-frame into the sentinel-delimited form the shared parser expects and let
-	// the existing command processor do all the work
+	// the existing command processor do all the work.  The parser is one shared
+	// state machine and this handler runs on both server instances' tasks, so
+	// the push-and-drain must be atomic per command.
+	xSemaphoreTake(cmd_mutex, portMAX_DELAY);
 	delim = CMD_JSON_STRING_START;
 	push_rx_data(&delim, 1);
 	push_rx_data((char*) rx_buf, frame.len);
@@ -455,6 +491,7 @@ static esp_err_t ws_handler(httpd_req_t* req)
 	push_rx_data(&delim, 1);
 
 	while (process_rx_data()) {}
+	xSemaphoreGive(cmd_mutex);
 
 	return ESP_OK;
 }

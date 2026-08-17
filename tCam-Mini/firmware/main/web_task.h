@@ -78,6 +78,11 @@
 //
 // Web Task API
 //
+// True when the handle is the HTTPS server instance (for transport-tagged logs)
+#include "esp_http_server.h"
+#include <stdbool.h>
+bool web_handle_is_https(httpd_handle_t hd);
+
 
 /**
  * Start the web server.  Blocks briefly waiting for the network interface to come

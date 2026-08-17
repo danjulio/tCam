@@ -299,10 +299,14 @@ void lepton_emissivity(uint16_t e)
 	cci_rad_flux_linear_params_t set_flux_values;
 	
 	if (lep_is_radiometric) {
-		// Scale percentage e into Lepton scene emissivity values (1-100% -> 82-8192)
+		// Scale percentage e into Lepton scene emissivity values (1-100% -> 82-8192).
+		// Round UP: plain integer division mapped 1% to 81, one below the Lepton's
+		// documented minimum of 82, so the sensor rejected the whole parameter
+		// block with LEP_ERROR_RANGE (-3) and the emissivity setting silently
+		// never applied.
 		if (e < 1) e = 1;
 		if (e > 100) e = 100;
-		set_flux_values.sceneEmissivity = e * 8192 / 100;
+		set_flux_values.sceneEmissivity = (e * 8192 + 99) / 100;
 		
 		// Set default (no lens) values for the remaining parameters
 		set_flux_values.TBkgK      = 29515;
