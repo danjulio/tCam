@@ -48,6 +48,13 @@
 // and if it does, no harm: the AP dissolves the moment the station connects.
 #define WIFI_FALLBACK_AP_FAILS        12
 
+// How often the station re-tries the configured network once the recovery AP is
+// up.  Each attempt costs a couple of seconds off-channel, which stutters the
+// AP anyone is using to fix the configuration - retrying back-to-back made the
+// recovery AP barely usable in exactly the situation it exists for.  Thirty
+// seconds keeps the auto-rejoin promise while leaving the radio alone.
+#define WIFI_FALLBACK_RETRY_MSEC      30000
+
 
 //
 // WiFi Utilities API
@@ -69,5 +76,15 @@ bool wifi_is_ap_mode();
  * though its stored configuration says station mode.
  */
 bool wifi_is_fallback_active();
+
+/**
+ * Bracket a network scan.  esp_wifi_scan_start() is refused while the station is
+ * mid-connect, and a station whose configured network is unreachable is mid-
+ * connect nearly all the time - so the scan endpoint returned nothing in exactly
+ * the situation where the user needs the network list.  prepare() aborts any
+ * connect attempt in flight and holds reconnects off; complete() re-arms them.
+ */
+void wifi_scan_prepare();
+void wifi_scan_complete();
 
 #endif /* WIFI_UTILITIES_H */

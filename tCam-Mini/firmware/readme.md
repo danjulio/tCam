@@ -22,6 +22,31 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 5.2
+FW revision 5.2 makes the recovery access point actually usable while it is up.
+
+1. Once the fallback AP was raised, the station kept retrying the unreachable
+network back-to-back - each attempt parking the radio off-channel for a couple
+of seconds - and the retry path blocked the system event task for a second per
+cycle.  The AP that exists precisely for this situation was stuttering under
+everyone connected to it: pages stalled, fetches timed out ("Discovery failed"),
+and the whole camera felt broken.  Reconnects are now scheduled from a one-shot
+timer (the event handler never blocks), and once the fallback AP is up the
+station retries every 30 seconds instead of continuously.  Auto-rejoin when the
+home network returns is unchanged, just calmer.
+2. The WiFi scan now works from the recovery AP.  The driver refuses to scan
+while the station is mid-connect, and with an unreachable network configured the
+station was mid-connect nearly all the time - so the settings page showed no
+networks in exactly the situation where the user needs the list to fix the
+configuration.  The scan endpoint now aborts any connect attempt in flight,
+holds reconnects off while the scan runs, and re-arms them afterwards.
+3. Camera discovery always returns at least the camera answering the request.
+mDNS deliberately does not answer its own queries, so with one camera - and
+always when the client is connected straight to the camera's own AP - the picker
+came back empty and looked broken.  The camera now lists itself (the UI marks it
+"this camera"), other cameras found by mDNS follow, and an mDNS query failure is
+logged rather than reported as a failed discovery.
+
 #### FW 5.1
 FW revision 5.1 fixes the WebSocket endpoint never being installed.
 

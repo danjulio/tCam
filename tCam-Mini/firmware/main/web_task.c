@@ -558,15 +558,31 @@ static esp_err_t scan_get_handler(httpd_req_t* req)
 	};
 
 	// A scan takes a couple of seconds and stalls the radio, which would visibly
-	// stutter a live stream, so this is only offered on demand from the settings UI
+	// stutter a live stream, so this is only offered on demand from the settings UI.
+	//
+	// The bracket matters: the driver refuses to scan while the station is trying
+	// to connect, and a camera whose configured network is unreachable - the
+	// recovery-AP situation, where the user most needs this list - is trying to
+	// connect nearly all the time.  prepare() aborts the attempt and holds
+	// reconnects off until complete().
+	wifi_scan_prepare();
+	vTaskDelay(pdMS_TO_TICKS(150));   // let an aborted connect settle
+
 	ret = esp_wifi_scan_start(&scan_cfg, true);
 	if (ret != ESP_OK) {
+		// The driver can still be tearing the connect down; one deliberate retry
+		vTaskDelay(pdMS_TO_TICKS(400));
+		ret = esp_wifi_scan_start(&scan_cfg, true);
+	}
+	if (ret != ESP_OK) {
+		wifi_scan_complete();
 		ESP_LOGE(TAG, "scan failed (%d)", ret);
 		httpd_resp_set_type(req, "application/json");
 		return httpd_resp_sendstr(req, "{\"error\":\"scan failed\",\"networks\":[]}");
 	}
 
 	esp_wifi_scan_get_ap_records(&num, records);
+	wifi_scan_complete();
 
 	httpd_resp_set_type(req, "application/json");
 	httpd_resp_sendstr_chunk(req, "{\"networks\":[");
@@ -786,23 +802,42 @@ static esp_err_t icon_get_handler(httpd_req_t* req)
 static esp_err_t discover_get_handler(httpd_req_t* req)
 {
 	char entry[224];
+	char self_ip[16];
 	esp_err_t ret;
-	int emitted = 0;
 	mdns_result_t* results = NULL;
 	mdns_result_t* r;
+	net_info_t* net_infoP = (*net_get_info)();
+	const esp_app_desc_t* app_desc = esp_app_get_description();
 
-	ret = mdns_query_ptr("_tcam-socket", "_tcp", DISCOVER_TIMEOUT_MS,
-	                     DISCOVER_MAX_RESULTS, &results);
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "mDNS discovery failed (%d)", ret);
-		httpd_resp_set_type(req, "application/json");
-		return httpd_resp_sendstr(req, "{\"error\":\"discovery failed\",\"cameras\":[]}");
-	}
+	// This camera goes in the list unconditionally.  mDNS deliberately does not
+	// answer its own queries, so on a network with one camera - and always when
+	// the client is connected straight to the camera's own AP - a pure query
+	// returns nothing and the picker looked broken.  The UI recognises the
+	// address it is already talking to and marks the entry "this camera".
+	// cur_ip_addr index 3 holds the first octet (see ps_utilities).
+	snprintf(self_ip, sizeof(self_ip), "%d.%d.%d.%d",
+	         net_infoP->cur_ip_addr[3], net_infoP->cur_ip_addr[2],
+	         net_infoP->cur_ip_addr[1], net_infoP->cur_ip_addr[0]);
 
 	httpd_resp_set_type(req, "application/json");
 	httpd_resp_sendstr_chunk(req, "{\"cameras\":[");
 
+	snprintf(entry, sizeof(entry),
+	         "{\"name\":\"%s\",\"host\":\"%s\",\"ip\":\"%s\",\"version\":\"%s\"}",
+	         net_infoP->ap_ssid, net_infoP->ap_ssid, self_ip, app_desc->version);
+	httpd_resp_sendstr_chunk(req, entry);
+
+	// Then whatever mDNS can see.  A query failure is logged but no longer
+	// reported as a failed discovery - the list above is already useful.
+	ret = mdns_query_ptr("_tcam-socket", "_tcp", DISCOVER_TIMEOUT_MS,
+	                     DISCOVER_MAX_RESULTS, &results);
+	if (ret != ESP_OK) {
+		ESP_LOGW(TAG, "mDNS query failed (%d)", ret);
+		results = NULL;
+	}
+
 	for (r = results; r != NULL; r = r->next) {
+		char rip[16];
 		const char* version = "";
 		mdns_ip_addr_t* a;
 		size_t t;
@@ -817,6 +852,13 @@ static esp_err_t discover_get_handler(httpd_req_t* req)
 		}
 		if (ip == 0) continue;
 
+		snprintf(rip, sizeof(rip), "%d.%d.%d.%d",
+		         (int) (ip & 0xFF), (int) ((ip >> 8) & 0xFF),
+		         (int) ((ip >> 16) & 0xFF), (int) ((ip >> 24) & 0xFF));
+
+		// Already emitted above as the unconditional self entry
+		if (strcmp(rip, self_ip) == 0) continue;
+
 		for (t = 0; t < r->txt_count; t++) {
 			if ((r->txt[t].key != NULL) && (strcmp(r->txt[t].key, "version") == 0) &&
 			    (r->txt[t].value != NULL)) {
@@ -825,15 +867,11 @@ static esp_err_t discover_get_handler(httpd_req_t* req)
 		}
 
 		snprintf(entry, sizeof(entry),
-		         "%s{\"name\":\"%s\",\"host\":\"%s\",\"ip\":\"%d.%d.%d.%d\",\"version\":\"%s\"}",
-		         (emitted == 0) ? "" : ",",
+		         ",{\"name\":\"%s\",\"host\":\"%s\",\"ip\":\"%s\",\"version\":\"%s\"}",
 		         (r->instance_name != NULL) ? r->instance_name : "tCam",
 		         (r->hostname != NULL) ? r->hostname : "",
-		         (int) (ip & 0xFF), (int) ((ip >> 8) & 0xFF),
-		         (int) ((ip >> 16) & 0xFF), (int) ((ip >> 24) & 0xFF),
-		         version);
+		         rip, version);
 		httpd_resp_sendstr_chunk(req, entry);
-		emitted++;
 	}
 
 	mdns_query_results_free(results);

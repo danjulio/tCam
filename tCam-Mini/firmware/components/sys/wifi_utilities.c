@@ -31,6 +31,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "nvs_flash.h"
@@ -74,6 +75,16 @@ static const wifi_country_t def_country_info = {
 
 static bool sta_connected = false; // Set when we connect to an AP so we can disconnect if we restart
 static int sta_retry_num = 0;
+
+// Deferred station reconnect.  Retrying from inside the disconnect event used a
+// blocking delay in the system event handler - stalling AP associations, DHCP
+// and every other event behind it - and kept the radio off-channel near
+// continuously once the recovery AP was up.  A one-shot timer costs neither.
+static esp_timer_handle_t reconnect_timer = NULL;
+
+// While true a scan owns the radio: the disconnect handler must not schedule a
+// reconnect and the reconnect timer must not fire a connect underneath it
+static volatile bool scan_hold = false;
 static int sta_fail_count = 0;     // Consecutive failed attempts, for fallback triggering
 
 // Recovery access point state.  When the camera is configured to join a network
@@ -96,6 +107,8 @@ static bool apply_ap_ip_config(esp_netif_t* netif);
 static void load_ap_wifi_config(wifi_config_t* cfg);
 static void enable_fallback_ap();
 static void disable_fallback_ap();
+static void schedule_reconnect(uint32_t delay_ms);
+static void reconnect_timer_cb(void* arg);
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
@@ -200,6 +213,13 @@ bool wifi_init()
  */
 bool wifi_reinit()
 {
+	// Cancel any deferred reconnect - it belongs to the configuration being
+	// discarded - and release a scan hold left by an interrupted scan
+	if (reconnect_timer != NULL) {
+		esp_timer_stop(reconnect_timer);
+	}
+	scan_hold = false;
+
 	// Tear down a recovery AP before rebuilding - the netif is destroyed here so
 	// the next fallback episode (if any) creates it fresh against the new config
 	if (fallback_active) {
@@ -300,6 +320,38 @@ static bool sta_should_connect()
 net_info_t* wifi_get_info()
 {
 	return &wifi_info;
+}
+
+
+void wifi_scan_prepare()
+{
+	scan_hold = true;
+
+	if (reconnect_timer != NULL) {
+		esp_timer_stop(reconnect_timer);
+	}
+
+	// Abort a connect attempt in flight - the driver refuses to scan during one,
+	// and with an unreachable network configured there is nearly always one in
+	// flight.  The disconnect event this triggers sees scan_hold and stays quiet.
+	// A station that is actually associated is left alone; scanning is legal then.
+	// sta_connected, not NET_INFO_FLAG_CONNECTED - the flag describes the AP while
+	// the fallback is up, and this decision is about the station.
+	if (sta_should_connect() && !sta_connected) {
+		esp_wifi_disconnect();
+	}
+}
+
+
+void wifi_scan_complete()
+{
+	scan_hold = false;
+
+	// Resume the pursuit of the configured network at the calm cadence - the
+	// operator is clearly present and using the interface right now
+	if (sta_should_connect() && !sta_connected) {
+		schedule_reconnect(fallback_active ? WIFI_FALLBACK_RETRY_MSEC : 1000);
+	}
 }
 
 
@@ -535,16 +587,20 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         	if (!fallback_active) {
         		wifi_info.flags &= ~NET_INFO_FLAG_CONNECTED;
         	}
+        	// The station itself is genuinely down either way.  NET_INFO_FLAG_CONNECTED
+        	// is overloaded in fallback (it describes the AP), so everything that needs
+        	// the truth about the station - scan bracketing, the reconnect timer -
+        	// reads sta_connected instead.
+        	sta_connected = false;
         	// A scan-only station has nothing to reconnect to.  Retrying here would
         	// spin the driver through connect/fail/connect as fast as it can, which
         	// disturbs the access point we are actually serving.
         	if (!sta_should_connect()) {
         		break;
         	}
-        	if (sta_retry_num > WIFI_FAST_RECONNECT_ATTEMPTS) {
-        		vTaskDelay(pdMS_TO_TICKS(1000));
-        	} else {
-        		sta_retry_num++;
+        	// A scan owns the radio right now; wifi_scan_complete() re-arms
+        	if (scan_hold) {
+        		break;
         	}
         	// The configured network has been unreachable long enough that the
         	// camera has probably moved.  Raise the recovery AP so it can be
@@ -553,10 +609,60 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         	if (++sta_fail_count == WIFI_FALLBACK_AP_FAILS) {
         		enable_fallback_ap();
         	}
-            esp_wifi_connect();
-            ESP_LOGI(TAG, "Retry connection to %s", wifi_info.sta_ssid);
+        	// Never block in this handler - it runs on the system event task, and a
+        	// delay here stalls AP associations and DHCP behind it.  Fast attempts
+        	// right after losing a link, then a timer takes over; once the recovery
+        	// AP is up, long intervals so the AP being served stays usable.
+        	if (fallback_active) {
+        		schedule_reconnect(WIFI_FALLBACK_RETRY_MSEC);
+        	} else if (sta_retry_num > WIFI_FAST_RECONNECT_ATTEMPTS) {
+        		schedule_reconnect(1000);
+        	} else {
+        		sta_retry_num++;
+        		esp_wifi_connect();
+        		ESP_LOGI(TAG, "Retry connection to %s", wifi_info.sta_ssid);
+        	}
         	break;
 	}
+}
+
+
+/**
+ * Arm (or re-arm) the one-shot reconnect timer.  Created lazily so every path -
+ * first boot, reinit, fallback - shares the same instance.
+ */
+static void schedule_reconnect(uint32_t delay_ms)
+{
+	if (reconnect_timer == NULL) {
+		const esp_timer_create_args_t args = {
+			.callback = reconnect_timer_cb,
+			.name = "wifi_reconnect"
+		};
+
+		if (esp_timer_create(&args, &reconnect_timer) != ESP_OK) {
+			ESP_LOGE(TAG, "Could not create reconnect timer - retrying inline");
+			esp_wifi_connect();
+			return;
+		}
+	}
+
+	esp_timer_stop(reconnect_timer);
+	esp_timer_start_once(reconnect_timer, (uint64_t) delay_ms * 1000);
+}
+
+
+static void reconnect_timer_cb(void* arg)
+{
+	(void) arg;
+
+	// The world may have changed while the timer ran: a scan may own the radio,
+	// the network may have been joined, or the configuration replaced
+	if (scan_hold) return;
+	if (!sta_should_connect()) return;
+	if (sta_connected) return;
+
+	esp_wifi_connect();
+	ESP_LOGI(TAG, "Retry connection to %s", wifi_info.sta_ssid);
 }
 
 
@@ -572,6 +678,11 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
 	// The configured network is reachable again (or the camera was just
 	// re-provisioned onto a new one) - the recovery AP has done its job
 	disable_fallback_ap();
+
+	// A reconnect scheduled before this success would fire a pointless connect
+	if (reconnect_timer != NULL) {
+		esp_timer_stop(reconnect_timer);
+	}
 
 	wifi_info.flags |= NET_INFO_FLAG_CONNECTED;
     sta_connected = true;
