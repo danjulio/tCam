@@ -21,14 +21,15 @@ number — you need it to flash.
 
 ## 2. Install ESP-IDF v4.4.4
 
-Download the **offline installer for v4.4.4** from
-https://dl.espressif.com/dl/esp-idf/
+v4.4.4 is the last release of the v4 line (2022) and reached end of life in
+2024, so **it is no longer offered on https://dl.espressif.com/dl/esp-idf/** —
+that page now lists v5.x only.  Beware that `v5.4.4` there is not `v4.4.4`.
 
-Choose the entry labelled *ESP-IDF v4.4.4 — Offline Installer* (roughly 1 GB).
-The offline installer bundles Python, the Xtensa toolchain, OpenOCD and Git, so
-nothing else has to be installed separately.
+The release itself is still available; install it from source.  See
+*Installing v4.4.4 from git* below, which is now the normal route.  The rest of
+this section applies only if you have an old copy of the offline installer.
 
-When the installer runs:
+When the offline installer runs:
 
 - **Keep the installation directory short** — `C:\Espressif` (the installer's own
   default) or `C:\esp`.  Do not put it under your user profile.  Windows has a
@@ -40,14 +41,45 @@ When the installer runs:
 
 Installation takes 10–20 minutes.
 
+### Installing v4.4.4 from git
+
+Works whether or not another IDF version is present.  Choose a tools directory
+first — `C:\Espressif` if the Espressif installer has already put one there, so
+the v4.4 toolchain lands beside the existing ones rather than duplicating a set
+under your user profile:
+
+```
+[Environment]::SetEnvironmentVariable("IDF_TOOLS_PATH","C:\Espressif","User")
+$env:IDF_TOOLS_PATH="C:\Espressif"
+
+cd C:\Espressif\frameworks
+git clone -b v4.4.4 --recursive https://github.com/espressif/esp-idf.git esp-idf-v4.4.4
+```
+
+Then install the toolchain and build a Python environment for it.  Use a
+**Python 3.11 or older** interpreter: 3.12 removed `distutils`, which the v4.4
+tooling still imports.  The Espressif installer's bundled interpreter is a good
+choice if you have one:
+
+```
+C:\Espressif\tools\idf-python\3.11.2\python.exe C:\Espressif\frameworks\esp-idf-v4.4.4\tools\idf_tools.py install
+C:\Espressif\tools\idf-python\3.11.2\python.exe C:\Espressif\frameworks\esp-idf-v4.4.4\tools\idf_tools.py install-python-env
+```
+
+The first command fetches the GCC 8.4.0 Xtensa toolchain v4.4 builds with; the
+second creates an `idf4.4_py3.11_env` virtualenv.  Activate with the framework's
+`export.ps1` as in step 4.
+
+There is no Start-menu shortcut for a git install — activate by path.
+
+
 ### If a different IDF version is already installed
 
 v4.4.4 coexists with other versions — each framework lives in its own folder
-under `<install dir>\frameworks\` and they share one tools directory.  Point the
-v4.4.4 installer at the **same** install directory as the existing version
-rather than a new one, so it reuses the toolchains instead of duplicating
-gigabytes of them.  You get a second Start-menu shortcut, and each shortcut
-activates its own version.
+under `<install dir>\frameworks\` and they share one tools directory.  Put
+v4.4.4 in the **same** install directory as the existing version rather than a
+new tree, so it reuses the tools directory instead of duplicating gigabytes of
+toolchains.  Each version is then selected by running its own `export.ps1`.
 
 This project will **not** build under IDF v5.x — the component layout, the
 `esp_https_server` API and the `sdkconfig` format all changed after v4.4.  If a
@@ -57,8 +89,8 @@ check `echo $env:IDF_PATH` first; it must end in `esp-idf-v4.4.4`.
 
 ## 3. Get the source
 
-Open the Start menu shortcut **ESP-IDF 4.4 PowerShell** (see step 4 for why this
-matters) and clone the repository somewhere with a short path:
+Clone the repository somewhere with a short path — the same 260-character limit
+applies to the build tree:
 
 ```
 cd C:\
@@ -217,7 +249,7 @@ certificate on first boot.
 ```
 # once per machine
 install CP210x driver
-install ESP-IDF v4.4.4 offline installer to C:\Espressif
+install ESP-IDF v4.4.4 (git clone + idf_tools.py, see step 2)
 [Environment]::SetEnvironmentVariable("SSLKEYLOGFILE",$null,"User")   (if set)
 python -m pip install "setuptools<81"     (inside the ESP-IDF 4.4 shell)
 
@@ -237,7 +269,8 @@ idf.py -C C:\tcam\tCam-Mini\firmware -p COM10 -b 921600 flash monitor
 | `idf.py : The term 'idf.py' is not recognized` | New shell, environment not activated | Run `C:\Espressif\frameworks\esp-idf-v4.4.4\export.ps1` or use the Start menu shortcut |
 | `ModuleNotFoundError: No module named 'pkg_resources'` | setuptools 81+ removed it | `python -m pip install "setuptools<81"` |
 | `PermissionError: ... virtual_file.log` inside `urllib3` on every `idf.py` | Security software set `SSLKEYLOGFILE` to an unwritable path | Clear the variable (step 5) |
-| Build fails at once with unknown Kconfig symbols or missing components | An IDF v5.x shell is active | Activate the v4.4.4 framework; check `echo $env:IDF_PATH` |
+| `Failed to resolve component 'mdns'` | An IDF v5.x shell is active - `mdns` left the framework after v4.4 | Activate the v4.4.4 framework; check `echo $env:IDF_PATH` |
+| Build worked before, now fails oddly after a v5.x attempt | A v5.x configure run rewrote `sdkconfig` with its own Kconfig symbols | `git checkout -- tCam-Mini/firmware/sdkconfig tCam-Mini/firmware/sdkconfig.old` and delete `build\` |
 | `Filename too long` during build | IDF or source installed under a long path | Reinstall to `C:\Espressif` or `C:\esp`, clone to `C:\tcam` |
 | `Detected size(8192k) smaller than ... image header(16384k)`, reboot loop | Built/flashed the tCam handheld project by mistake | `erase-flash`, then rebuild with `-C C:\tcam\tCam-Mini\firmware` |
 | A directory literally named `~` appears | PowerShell does not expand `~` in every context | Use full paths; delete the stray directory |
