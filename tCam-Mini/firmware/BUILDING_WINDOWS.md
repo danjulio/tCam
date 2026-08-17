@@ -174,9 +174,8 @@ idf.py -C C:\tcam\tCam-Mini\firmware -p COM10 erase-flash
 idf.py -C C:\tcam\tCam-Mini\firmware -p COM10 -b 921600 flash monitor
 ```
 
-Erasing also clears saved WiFi credentials and the TLS certificate, so the camera
-comes back up broadcasting its own access point and generates a fresh
-certificate on first boot.
+Erasing also clears saved WiFi credentials, so the camera comes back up
+broadcasting its own access point.
 
 
 ## Configuration

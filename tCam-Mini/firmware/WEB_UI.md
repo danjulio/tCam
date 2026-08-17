@@ -73,12 +73,13 @@ alarm color regardless of palette.
 **Keyboard**: Space pause/resume · R record · S screenshot · F fullscreen ·
 O overlay.
 
-**HTTPS.**  The camera also serves the interface on port 443 with a certificate it
-generates for itself on first boot (EC P-256, unique per camera, stored in NVS,
-valid to 2050).  The browser warns once per device because it is self-signed —
-expected for a device with no public name.  HTTP remains primary: captive-portal
-probes are plain HTTP, and phones' portal mini-browsers cannot accept certificate
-warnings, so there is deliberately no forced redirect.
+**Plain HTTP, deliberately.**  The camera serves only HTTP.  An HTTPS option
+(with an on-device certificate authority) shipped in 6.6–6.8 and was removed:
+on this microcontroller every TLS handshake runs on the same task that carries
+the video stream, so each new connection — including every probe from a device
+that had not installed the certificate — froze the stream for most of a second,
+and the encrypted stream was visibly glitchy while plain HTTP was smooth.  On a
+LAN camera the encryption bought nothing worth that cost.
 
 Tap the image to drop a probe point (tap again to clear), or switch the cursor to
 **Move spot** to reposition the camera's own spot meter — the reading measured by

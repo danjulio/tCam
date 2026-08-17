@@ -10,20 +10,19 @@ This fork modernizes the **tCam-Mini firmware** into a fully self-contained inst
 
 ### What changed vs. the original firmware
 
-| | Original (FW 3.x) | This fork (FW 6.3) |
+| | Original (FW 3.x) | This fork (FW 6.9) |
 |---|---|---|
-| Viewer | Desktop/mobile app required | Any browser; installable web app (PWA) |
-| Streaming | json over TCP :5001 | Same, **plus** compact binary WebSocket to the browser |
+| Viewer | Desktop/mobile app required | Any browser; add-to-home-screen web app |
+| Streaming | json over TCP :5001 | Same, **plus** compact binary WebSocket to the browser; up to 4 viewers at once |
 | UI | — | Dark instrument UI: palettes, 640×480 upscale, isotherm, spot/probe, °C/°F |
 | Recording | Desktop app | In-browser video + PNG, optional burned-in overlay |
 | WiFi | One configured SSID | **Roams**: 5 saved networks, joins strongest in sight |
 | Unreachable network | Camera unreachable | Own hotspot within seconds, auto-rejoins when found |
 | Setup | App/serial | Captive portal: connect to hotspot, page opens itself |
-| HTTPS | — | Self-signed cert generated on-device (valid to 2050) |
 | Firmware update | Serial / desktop app | Drag a .bin into the browser (safe A/B partitions) |
 | Discovery | — | mDNS: `tcam-mini.local` + in-app camera finder |
+| Diagnostics | Serial cable | System log in the browser (Settings → System) |
 | Sensor protection | — | Shutter parks over detector 10 s after last viewer leaves (sun protection) |
-| Self-heating drift | FFC every 180 s / 3 °C | FFC every 120 s / 1.5 °C — corners stay calibrated |
 | Platform | ESP-IDF 4.4.4 (EOL 2024) | ESP-IDF 5.5, current drivers throughout |
 | Protocol compat | — | Port 5001 json unchanged; `.tjsn` files identical |
 

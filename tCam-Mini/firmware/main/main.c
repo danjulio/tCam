@@ -106,8 +106,6 @@ void app_main(void)
 
     	// Serves the on-camera UI.  Runs at a low priority so that neither the
     	// lepton VoSPI transfer nor the response path can be starved by a browser.
-    	// Certificate generation, which needs a large stack for ECDSA math, runs in
-    	// its own short-lived task (see cert_utilities) rather than here.
     	xTaskCreatePinnedToCore(&web_task, "web_task",  4096, NULL, 1, &task_handle_web,  0);
     }
 

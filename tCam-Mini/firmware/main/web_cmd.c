@@ -90,7 +90,7 @@ static esp_err_t ws_handler(httpd_req_t* req);
 static int find_client(int fd);
 static bool add_client(httpd_handle_t hd, int fd);
 static void remove_client_locked(int idx);
-static void log_ws_peer(httpd_handle_t hd, int fd);
+static void log_ws_peer(int fd);
 
 
 //
@@ -337,7 +337,7 @@ static bool add_client(httpd_handle_t hd, int fd)
 			// One shared parser for all browsers; reset it as the population starts
 			init_command_processor();
 		}
-		log_ws_peer(hd, fd);
+		log_ws_peer(fd);
 	} else {
 		ESP_LOGW(TAG, "Refusing ws client %d (%s)", fd,
 		         first ? "TCP client holds the session" : "viewer limit reached");
@@ -347,18 +347,17 @@ static bool add_client(httpd_handle_t hd, int fd)
 
 
 /**
- * Log which peer just joined, and on which transport
+ * Log which peer just joined
  */
-static void log_ws_peer(httpd_handle_t hd, int fd)
+static void log_ws_peer(int fd)
 {
-	const char* proto = web_handle_is_https(hd) ? "wss" : "ws";
 	struct sockaddr_storage addr;
 	socklen_t alen = sizeof(addr);
 
 	if (getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) {
 		if (addr.ss_family == AF_INET) {
 			struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
-			ESP_LOGI(TAG, "%s client %d connected from %s", proto, fd,
+			ESP_LOGI(TAG, "ws client %d connected from %s", fd,
 			         inet_ntoa(a4->sin_addr));
 			return;
 		}
@@ -372,14 +371,14 @@ static void log_ws_peer(httpd_handle_t hd, int fd)
 
 			for (i = 0; i < 10; i++) if (b[i] != 0) zeros = 0;
 			if (zeros && (b[10] == 0xFF) && (b[11] == 0xFF)) {
-				ESP_LOGI(TAG, "%s client %d connected from %d.%d.%d.%d",
-				         proto, fd, b[12], b[13], b[14], b[15]);
+				ESP_LOGI(TAG, "ws client %d connected from %d.%d.%d.%d",
+				         fd, b[12], b[13], b[14], b[15]);
 				return;
 			}
 		}
 #endif
 	}
-	ESP_LOGI(TAG, "%s client %d connected", proto, fd);
+	ESP_LOGI(TAG, "ws client %d connected", fd);
 }
 
 

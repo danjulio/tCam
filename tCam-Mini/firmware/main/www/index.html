@@ -560,30 +560,6 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
       whole image is received and verified — an interrupted update leaves the current firmware
       running.</div>
 
-    <div class="sect">Security</div>
-    <div class="row">
-      <a class="btn" id="caBtn" href="/ca.crt" download="tCam-CA.crt"
-         style="display:block;text-align:center;text-decoration:none">Download certificate (tCam CA)</a>
-    </div>
-    <div class="hint" id="tlsHint">The camera runs its own tiny certificate authority and
-      serves HTTPS on port 443 with a certificate signed by it (valid to 2050). Install the
-      CA <b>once per device</b> and this camera becomes fully trusted there: no warnings,
-      encrypted video works, and the browser offers real app installation.
-      <br><br><b>Android:</b> download, then Settings &rarr; search "CA certificate" &rarr;
-      Install anyway &rarr; pick the file. (Android then shows a standing "network may be
-      monitored" notice — that is how it marks any user-installed CA.)
-      <br><b>Windows:</b> double-click the file &rarr; Install Certificate &rarr; Local
-      Machine &rarr; "Place all certificates in the following store" &rarr; Trusted Root
-      Certification Authorities.
-      <br><b>iPhone/iPad:</b> download in Safari &rarr; Settings &rarr; Profile Downloaded
-      &rarr; Install; then Settings &rarr; General &rarr; About &rarr; Certificate Trust
-      Settings &rarr; enable for tCam.
-      <br><br>Without the install, everything still works as before: http for video, https
-      accepted per-browser with a one-time warning.</div>
-    <div class="row" id="tlsLinkRow" style="display:none;margin-top:10px">
-      <button class="btn" id="tlsGo">Open the encrypted version</button>
-    </div>
-
     <div class="sect">Clock</div>
     <div class="row"><button class="btn" id="setTime">Set camera clock from this device</button></div>
 
@@ -618,7 +594,7 @@ var PALETTES = {
 };
 
 /* ============================== state ============================== */
-var ws=null, wsOK=false, reconnectTimer=null, reconnectDelay=2000, wsFails=0;
+var ws=null, wsOK=false, reconnectTimer=null, reconnectDelay=2000;
 var cv=document.getElementById("cv"), ctx=cv.getContext("2d");
 var lut=new Uint8Array(256*3);
 var raw=null, lastJson=null, lastBin=null;
@@ -972,14 +948,13 @@ function send(cmd,args){
 }
 
 function connect(){
-  var url=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws";
+  var url="ws://"+location.host+"/ws";
   try{ ws=new WebSocket(url); }catch(e){ scheduleReconnect(); return; }
   ws.binaryType="arraybuffer";
 
   ws.onopen=function(){
     wsOK=true;
     reconnectDelay=2000;
-    wsFails=0;
     $("dot").className="on";
     $("substate").textContent="connected";
     send("get_status"); send("get_config"); send("get_wifi");
@@ -1009,46 +984,9 @@ function connect(){
   };
 
   ws.onclose=function(){
-    var hadOpened=wsOK;
     wsOK=false;
     $("dot").className="";
     $("substate").textContent="disconnected — retrying";
-    if(hadOpened){ wsFails=0; }
-    else{
-      // Failing before ever opening, on an https origin, while the page's own
-      // API fetches succeed, means the browser is refusing to apply its
-      // certificate exception to WebSocket connections - a known limitation
-      // some browsers have with self-signed certificates.  No amount of
-      // re-accepting fixes it; the practical answer is the http origin, where
-      // the stream is unaffected.
-      wsFails++;
-      // The video connection cannot succeed on an https origin (browsers do
-      // not extend a self-signed certificate exception to WebSockets), so act
-      // on the first failure - and remember the user's answer so this asks
-      // exactly once, ever.  "OK" makes every future https visit hop to http
-      // by itself; "Cancel" keeps quiet apart from the status line.
-      if(location.protocol==="https:" && wsFails===1){
-        var choice=store.get("httpsVideo","");
-        if(choice==="http"){
-          location.href="http://"+location.host+"/";
-          return;
-        }
-        if(choice!=="stay"){
-          if(confirm("The video connection cannot be made over HTTPS.\n\n"+
-                     "Browsers accept a self-signed certificate for pages, but "+
-                     "refuse to apply that same exception to the encrypted video "+
-                     "stream (WebSocket). Nothing on the camera can override it.\n\n"+
-                     "Switch to the HTTP address, where the video works normally?\n"+
-                     "(Your choice is remembered - this will not ask again.)")){
-            store.set("httpsVideo","http");
-            location.href="http://"+location.host+"/";
-            return;
-          }
-          store.set("httpsVideo","stay");
-        }
-        $("substate").textContent="no video over https — use http://"+location.host+"/";
-      }
-    }
     scheduleReconnect();
   };
   ws.onerror=function(){};
@@ -1375,8 +1313,7 @@ function renderCameras(list){
     if(isSelf){ el.classList.add("sel"); }
     else{
       el.onclick=function(){
-        // Preserve the scheme so an https session does not drop to http
-        location.href=location.protocol+"//"+c.ip+"/";
+        location.href="http://"+c.ip+"/";
       };
     }
     box.appendChild(el);
@@ -1395,9 +1332,10 @@ $("findBtn").onclick=function(){
   .then(function(){ b.disabled=false; b.textContent="Find other cameras"; });
 };
 
-// Chrome fires this only when it considers the app installable; a self-signed
-// certificate keeps that from happening, so the button falls back to telling the
-// user where the browser's own menu item is.
+// Chrome fires this only when it considers the app installable, which requires
+// an https origin the browser already trusts; the camera serves plain http (so
+// the video stream stays smooth), so the button falls back to telling the user
+// where the browser's own menu item is.
 var deferredInstall=null;
 window.addEventListener("beforeinstallprompt",function(e){
   e.preventDefault();
@@ -1416,8 +1354,8 @@ $("installBtn").onclick=function(){
   $("installHint").innerHTML = ios
     ? "In Safari, tap the <b>Share</b> button then <b>Add to Home Screen</b>. The icon opens this camera full screen."
     : "Open your browser's <b>⋮ menu</b> and choose <b>Add to Home screen</b>. "+
-      "(Chrome reserves its one-tap install for sites with a certificate it already trusts, "+
-      "which a camera issuing its own cannot be — the menu item does the same job.)";
+      "(Chrome reserves its one-tap install for https sites, and the camera serves "+
+      "plain http so the video stream stays smooth — the menu item does the same job.)";
   toast("See the note below the button","ok");
 };
 
@@ -1815,9 +1753,8 @@ function applyLink(d){
 }
 
 function pollStatus(){
-  // A hidden tab has no business polling - it cannot show the result, and a tab
-  // left open against a camera that now refuses its certificate would otherwise
-  // hit it every five seconds indefinitely
+  // A hidden tab has no business polling - it cannot show the result, and a
+  // forgotten tab would otherwise hit the camera every five seconds indefinitely
   if(document.hidden) return;
   fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
     if(d.camera){ $("camname").textContent=d.camera; document.title=d.camera; }
@@ -1833,9 +1770,9 @@ function pollStatus(){
 /* ==================== keep the screen awake while viewing ==================== */
 // A thermal camera you have to keep tapping to stop the phone sleeping is
 // useless for observation.  The standard Wake Lock API needs a secure context,
-// so it covers the https version; on plain http a muted, invisible 1 fps video
-// (fed from a 2x2 canvas stream) keeps mobile screens on - the classic player
-// trick.  Re-acquired whenever the tab becomes visible again, since the browser
+// which plain http is not, so a muted, invisible 1 fps video (fed from a 2x2
+// canvas stream) keeps mobile screens on - the classic player trick.
+// Re-acquired whenever the tab becomes visible again, since the browser
 // releases the lock every time the page is hidden.
 var wakeLock=null, wakeVideo=null;
 
@@ -1888,11 +1825,6 @@ try{
   pollStatus();
   // Cheap: a few hundred bytes every five seconds, next to 53 KB image frames
   setInterval(pollStatus,5000);
-
-  if(location.protocol==="http:"){
-    $("tlsLinkRow").style.display="block";
-    $("tlsGo").onclick=function(){ location.href="https://"+location.hostname+"/"; };
-  }
 
   setScale(scaleS);
 }catch(e){

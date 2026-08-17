@@ -22,6 +22,29 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.9
+FW revision 6.9 removes HTTPS support entirely.  The camera serves plain HTTP
+only.
+
+1. Why: esp_https_server performs every TLS handshake synchronously on the same
+task that carries the WebSocket video stream.  Each new connection - including
+every retry from a device that had not installed the camera's CA, and every
+OS connectivity probe aimed at port 443 - stalled the stream for most of a
+second of ECDHE math, which showed up as constant glitching and torn frames
+over wss while the identical stream over ws was smooth.  That is an
+architecture limit of the IDF server on this part, not a tuning problem, so
+the feature was removed rather than left half-working.  What HTTPS bought
+(encryption on a LAN, and Chrome's one-tap PWA install) was not worth a video
+stream that could not hold rate.
+2. Removed: the HTTPS server instance (port 443), the on-device certificate
+authority and certificate generation (cert_utilities), the /ca.crt download,
+and the Security section of the web UI.  Certificates stored in NVS by
+6.6-6.8 are erased on first boot of 6.9 to reclaim the space.  "Add to Home
+screen" still gives a chrome-free app icon on phones; only Chrome's one-tap
+install banner (which requires trusted https) goes away.
+3. The freed socket pool lets the HTTP server accept 6 connections (was 3
+per instance), giving the four-viewer streaming limit real headroom.
+
 #### FW 6.8
 FW revision 6.8 lets every connected browser view at once, and fixes a
 range-arithmetic bug that rejected the emissivity setting.

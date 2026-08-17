@@ -34,33 +34,39 @@
 //
 
 // Port the UI is served on.  80 so a bare address works with no port suffix.
+//
+// Plain HTTP only.  An HTTPS instance (with an on-device certificate authority)
+// shipped in 6.6-6.8 and was removed in 6.9: esp_https_server runs every TLS
+// handshake synchronously on the same task that carries the WebSocket stream,
+// so each new connection - including every probe from a device that does not
+// trust the certificate - froze the video for most of a second.  On a LAN
+// camera the encryption bought nothing worth that, and the plain-HTTP stream
+// is smooth.
 #define WEB_PORT 80
 
-// Define to restore the per-handshake TLS/httpd log output that normal browser
-// behavior (aborted handshakes while a certificate warning is on screen) fills
-// the log with.  Needed only when debugging the TLS stack itself.
+// Define to restore the per-request httpd log output that normal browser
+// behavior fills the log with.  Needed only when debugging the server itself.
 //#define WEB_VERBOSE_NET_LOGS
 
 // Stack for the server task.  Command handling runs cJSON in this context, so this
 // is well above the esp_http_server default.
 #define WEB_TASK_STACK_SIZE 6144
 
-// Sockets each server instance accepts.  Also sizes the array passed to
-// httpd_get_client_list(), which requires at least max_open_sockets entries, so
-// both servers are configured from this one value to keep them in step.
+// Sockets the server accepts.  Also sizes the array passed to
+// httpd_get_client_list(), which requires at least max_open_sockets entries.
 //
-// Budget carefully: each httpd instance costs max_open_sockets PLUS three
+// Budget carefully: the httpd instance costs max_open_sockets PLUS three
 // internal sockets (listen, and a UDP pair for control messages), and
 // CONFIG_LWIP_MAX_SOCKETS is capped at 16 on this target.  In access point mode
-// the total is two servers, the legacy command port's listen and client sockets,
+// the total is the server, the legacy command port's listen and client sockets,
 // and the captive portal's UDP socket:
 //
-//   (N+3)*2 + 2 + 1  <= 16   =>  N <= 3
+//   (N+3) + 2 + 1  <= 16   =>  N <= 10
 //
-// At N=4 that came to 17 and would have failed an accept once everything was in
-// use.  httpd's own check only validates one instance at a time (N+3 <= 16), so
-// it does not catch the overrun.
-#define WEB_MAX_SOCKETS 3
+// With the HTTPS instance gone the pool has room to spare; 6 covers four
+// simultaneous WebSocket viewers (web_cmd's limit) plus page and API fetches
+// without letting a rogue client tie up the whole socket table.
+#define WEB_MAX_SOCKETS 6
 
 // URI handler slots per server instance.  esp_http_server defaults to 8 and this
 // server registers nine handlers, the WebSocket endpoint among them - and it
@@ -78,11 +84,6 @@
 //
 // Web Task API
 //
-// True when the handle is the HTTPS server instance (for transport-tagged logs)
-#include "esp_http_server.h"
-#include <stdbool.h>
-bool web_handle_is_https(httpd_handle_t hd);
-
 
 /**
  * Start the web server.  Blocks briefly waiting for the network interface to come

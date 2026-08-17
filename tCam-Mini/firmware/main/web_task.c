@@ -28,7 +28,6 @@
  */
 #include "web_task.h"
 #include "web_cmd.h"
-#include "cert_utilities.h"
 #include "client_if.h"
 #include "dns_hijack.h"
 #include "log_ring.h"
@@ -39,11 +38,11 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
-#include "esp_https_server.h"
 #include "esp_app_desc.h"
 #include "esp_ota_ops.h"
 #include "esp_wifi.h"
 #include "mdns.h"
+#include "nvs.h"
 // IDF 5's esp_http_server.h no longer drags the socket API in behind it, and
 // peer_str() below works directly on the session's socket
 #include "lwip/inet.h"
@@ -77,7 +76,6 @@
 static const char* TAG = "web_task";
 
 static httpd_handle_t server = NULL;
-static httpd_handle_t servers = NULL;   // HTTPS instance (NULL if TLS unavailable)
 
 // Written by the server task during an upload, polled by rsp_task
 static volatile bool ota_active = false;
@@ -102,22 +100,12 @@ static esp_err_t manifest_get_handler(httpd_req_t* req);
 static esp_err_t icon_get_handler(httpd_req_t* req);
 static esp_err_t discover_get_handler(httpd_req_t* req);
 static esp_err_t log_get_handler(httpd_req_t* req);
-static esp_err_t ca_get_handler(httpd_req_t* req);
 static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err);
 static void register_handlers(httpd_handle_t hd);
 static void register_uri(httpd_handle_t hd, const httpd_uri_t* uri);
 static bool start_webserver();
-static void start_https_server();
+static void retire_tls_state();
 static int count_connections(httpd_handle_t hd);
-
-
-//
-// Web Task shared helpers
-//
-bool web_handle_is_https(httpd_handle_t hd)
-{
-	return (servers != NULL) && (hd == servers);
-}
 
 
 //
@@ -130,49 +118,22 @@ void web_task()
 	ESP_LOGI(TAG, "Start task");
 
 #ifndef WEB_VERBOSE_NET_LOGS
-	// Quiet the log lines that normal operation produces in bulk.  Every fresh
-	// browser aborts several TLS handshakes while its certificate warning is on
-	// screen, and esp-tls/httpd report each one as an error - technically true,
-	// practically noise that has repeatedly been mistaken for a fault.  Warnings
-	// and errors from our own modules are unaffected; define WEB_VERBOSE_NET_LOGS
-	// (in web_task.h) to restore the full output when debugging TLS itself.
-	// Keep the line that says WHY a handshake failed and drop the ones that only
-	// say THAT it failed.  The previous arrangement had this exactly backwards -
-	// esp-tls-mbedtls (which reports the mbedTLS error code) was silenced while
-	// esp_https_server's contentless "esp_tls_create_server_session failed" echo
-	// survived, leaving a failure that could not be diagnosed without a rebuild.
-	// Note which tags are NOT quieted.  httpd_uri warns - only warns - when the
-	// handler table is full, and silencing that hid a missing /ws endpoint behind
-	// a symptom that looked like a TLS fault for several releases.  httpd keeps
-	// its errors for the same reason: a server that fails to bind should say so.
-	esp_log_level_set("esp-tls-mbedtls", ESP_LOG_ERROR);
-	esp_log_level_set("esp_https_server", ESP_LOG_NONE);
+	// Quiet the log lines that normal operation produces in bulk (dropped
+	// connections, malformed probe requests).  Note which tags are NOT quieted.
+	// httpd_uri warns - only warns - when the handler table is full, and
+	// silencing that hid a missing /ws endpoint behind a symptom that looked
+	// like a network fault for several releases.  httpd keeps its errors for the
+	// same reason: a server that fails to bind should say so.
 	esp_log_level_set("httpd", ESP_LOG_ERROR);
 	esp_log_level_set("httpd_txrx", ESP_LOG_ERROR);
 	esp_log_level_set("httpd_uri", ESP_LOG_WARN);
 	esp_log_level_set("httpd_parse", ESP_LOG_ERROR);
-	ESP_LOGI(TAG, "Redundant TLS log echoes suppressed; failure reasons still logged");
 #endif
 
 	// The listening socket cannot be bound before the interface has an address
 	while (!(*net_is_connected)()) {
 		vTaskDelay(pdMS_TO_TICKS(500));
 	}
-
-#ifndef WEB_VERBOSE_NET_LOGS
-	// As an access point with the captive portal's DNS answering every name,
-	// every phone and PC on the AP aims its connectivity and secure-DNS probes at
-	// our port 443, rejects the certificate, and produces a -0x7780 line several
-	// times a second - a flood that has repeatedly buried the log lines that
-	// matter.  That failure mode carries no information here, so silence it in
-	// AP-like modes; in station mode TLS errors stay visible.
-	if (wifi_is_ap_mode() || wifi_is_fallback_active()) {
-		esp_log_level_set("esp-tls-mbedtls", ESP_LOG_NONE);
-		// Each rejected probe also emits httpd's "session creation failed" echo
-		esp_log_level_set("httpd", ESP_LOG_NONE);
-		ESP_LOGI(TAG, "AP mode: suppressing TLS probe noise from portal clients");
-	}
-#endif
 
 	// Internal heap is the scarce resource here - task stacks and socket buffers
 	// must come from it.  Log it so a failure to start leaves a diagnosable trail.
@@ -198,14 +159,13 @@ void web_task()
 		}
 	}
 
-	// TLS alongside plain HTTP.  HTTP must stay primary: captive portal probes are
-	// HTTP, and a forced redirect to a self-signed HTTPS page traps phones in a
-	// portal mini-browser that cannot accept the certificate.
-	start_https_server();
-
 	ESP_LOGI(TAG, "Internal heap after server start: %d free, largest block %d",
 	         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
 	         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+
+	// Housekeeping from the removed HTTPS support (6.6-6.8): cameras that ran it
+	// carry a CA and certificate in NVS.  Reclaim that space.
+	retire_tls_state();
 
 	// Only hijack DNS while we are the access point.  On someone else's network
 	// there is a real resolver and answering for every name would be hostile.
@@ -301,9 +261,6 @@ static void register_handlers(httpd_handle_t hd)
 	static const httpd_uri_t log_uri = {
 		.uri = "/api/log", .method = HTTP_GET, .handler = log_get_handler, .user_ctx = NULL
 	};
-	static const httpd_uri_t ca_uri = {
-		.uri = "/ca.crt", .method = HTTP_GET, .handler = ca_get_handler, .user_ctx = NULL
-	};
 
 	// The WebSocket goes in first.  It carries the image stream, so if the table
 	// ever runs short again it must not be the endpoint that loses its slot.
@@ -322,7 +279,6 @@ static void register_handlers(httpd_handle_t hd)
 	register_uri(hd, &icon512_uri);
 	register_uri(hd, &discover_uri);
 	register_uri(hd, &log_uri);
-	register_uri(hd, &ca_uri);
 
 	// Anything else - including every OS connectivity probe - is bounced to the UI
 	httpd_register_err_handler(hd, HTTPD_404_NOT_FOUND, redirect_handler);
@@ -346,82 +302,28 @@ static void register_uri(httpd_handle_t hd, const httpd_uri_t* uri)
 
 
 /**
- * Start the HTTPS instance on port 443, sharing every handler with the HTTP
- * server.  The certificate is the camera's own self-signed one (see
- * cert_utilities), so browsers warn once per device - expected for a device
- * with no public name.  Failure here is not fatal: the camera logs it and
- * continues serving HTTP, which the captive portal requires anyway.
+ * Erase the certificate material left behind by the removed HTTPS support.  A
+ * camera upgraded from 6.6-6.8 holds a CA, its private key and a leaf
+ * certificate in NVS - several KB of a small partition doing nothing.  Runs
+ * every boot; on a camera that never had them the namespace does not exist and
+ * this returns immediately.
  */
-static void start_https_server()
+static void retire_tls_state()
 {
-	const unsigned char* cert_pem;
-	const unsigned char* key_pem;
-	esp_err_t ret;
-	int wait;
-	net_info_t* net_infoP = (*net_get_info)();
-	size_t cert_len, key_len;
-	unsigned char ip4[4];
-	httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
+	nvs_handle_t h;
 
-	// In station mode the "connected" flag is raised at association, before DHCP
-	// hands out an address.  The certificate embeds the address in its SAN, so
-	// wait briefly for a real one rather than issuing a certificate for 0.0.0.0.
-	for (wait = 0; wait < 30; wait++) {
-		if ((net_infoP->cur_ip_addr[3] | net_infoP->cur_ip_addr[2] |
-		     net_infoP->cur_ip_addr[1] | net_infoP->cur_ip_addr[0]) != 0) break;
-		vTaskDelay(pdMS_TO_TICKS(500));
+	// The READONLY probe fails if the namespace was never created; a READWRITE
+	// open would create it as a side effect on a camera that never had one
+	if (nvs_open("tcamtls", NVS_READONLY, &h) != ESP_OK) return;
+	nvs_close(h);
+
+	if (nvs_open("tcamtls", NVS_READWRITE, &h) != ESP_OK) return;
+
+	if (nvs_erase_all(h) == ESP_OK) {
+		nvs_commit(h);
+		ESP_LOGI(TAG, "Removed stored TLS certificates (HTTPS support retired)");
 	}
-
-	// cur_ip_addr index 3 holds the first octet (see ps_utilities)
-	ip4[0] = net_infoP->cur_ip_addr[3];
-	ip4[1] = net_infoP->cur_ip_addr[2];
-	ip4[2] = net_infoP->cur_ip_addr[1];
-	ip4[3] = net_infoP->cur_ip_addr[0];
-
-	// The certificate is issued for the name and address the camera is actually
-	// reachable on, and reissued if either changes
-	if (!cert_get(net_infoP->ap_ssid, ip4, &cert_pem, &cert_len, &key_pem, &key_len)) {
-		ESP_LOGE(TAG, "No certificate available - HTTPS disabled");
-		return;
-	}
-
-	// servercert is the server's own identity.  cacert_pem is left unset - in IDF
-	// 5 it means the CA used to verify *client* certificates, which this server
-	// does not ask for.
-	conf.servercert = cert_pem;
-	conf.servercert_len = cert_len;
-	conf.prvtkey_pem = key_pem;
-	conf.prvtkey_len = key_len;
-
-	conf.httpd.ctrl_port         = 32769;              // distinct from the HTTP instance
-	// A browser opens several connections at once and each TLS handshake costs
-	// most of a second on this part.  With only two slots the server spent its
-	// time purging half-finished handshakes, which the client saw as connection
-	// resets.  The per-session buffers come from PSRAM now, so slots are cheap.
-	conf.httpd.max_open_sockets  = WEB_MAX_SOCKETS;
-	conf.httpd.max_uri_handlers  = WEB_MAX_URI_HANDLERS;
-	conf.httpd.lru_purge_enable  = true;
-	conf.httpd.uri_match_fn      = httpd_uri_match_wildcard;
-	// Generous relative to the ~750 mSec an ECDHE handshake takes here
-	conf.httpd.recv_wait_timeout = 30;
-	conf.httpd.send_wait_timeout = 30;
-	// Note: no custom close_fn here.  httpd_ssl_start() installs its own open_fn
-	// and per-socket transport context to carry the TLS session, and overriding
-	// the close path risks tearing that down in the wrong order.  The cost is
-	// that a browser which disappears over HTTPS is not reported to web_cmd by a
-	// close callback; the session is released when the next WebSocket send to it
-	// fails instead, which client_if already handles.
-
-	ret = httpd_ssl_start(&servers, &conf);
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "httpd_ssl_start failed (%d) - HTTPS disabled", ret);
-		servers = NULL;
-		return;
-	}
-
-	register_handlers(servers);
-
-	ESP_LOGI(TAG, "HTTPS server started on port %d", conf.port_secure);
+	nvs_close(h);
 }
 
 
@@ -471,12 +373,11 @@ static esp_err_t index_get_handler(httpd_req_t* req)
 {
 	char peer[32];
 
-	// Page loads are rare and identifying - log who is using the camera and on
-	// which transport, so the log can distinguish the operator's devices from
-	// anything else on the network poking at the server
+	// Page loads are rare and identifying - log who is using the camera, so the
+	// log can distinguish the operator's devices from anything else on the
+	// network poking at the server
 	peer_str(httpd_req_to_sockfd(req), peer, sizeof(peer));
-	ESP_LOGI(TAG, "UI page fetched by %s over %s", peer,
-	         (req->handle == servers) ? "https" : "http");
+	ESP_LOGI(TAG, "UI page fetched by %s", peer);
 
 	httpd_resp_set_type(req, "text/html");
 	httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
@@ -570,7 +471,7 @@ static esp_err_t status_get_handler(httpd_req_t* req)
 		ota_active ? "true" : "false",
 		rssi,
 		stations,
-		count_connections(server) + count_connections(servers),
+		count_connections(server),
 		session_names[client_if_active()],
 		heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
@@ -791,8 +692,8 @@ static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err)
  * icons would be useless.
  *
  * Note on installability: a service worker (and therefore Chrome's full "Install
- * app" flow) requires a trusted secure context, which a self-signed certificate
- * is not.  Without one, Android offers "Add to Home screen" and iOS honours the
+ * app" flow) requires a trusted secure context, which a plain-http camera on a
+ * LAN is not.  Instead, Android offers "Add to Home screen" and iOS honours the
  * apple-mobile-web-app meta tags in the page.  Both give a home screen icon that
  * launches the UI chrome-free, which is the part that matters.  Offline caching
  * is no loss here: the camera serves this app, so if the camera is unreachable
@@ -859,8 +760,7 @@ static esp_err_t icon_get_handler(httpd_req_t* req)
  */
 /**
  * Serve the buffered system log as plain text - the serial console without the
- * cable.  Allocated per request (PSRAM) because both server instances can be
- * in a handler at once.
+ * cable.  The linearized copy is allocated per request (PSRAM).
  */
 static esp_err_t log_get_handler(httpd_req_t* req)
 {
@@ -881,27 +781,6 @@ static esp_err_t log_get_handler(httpd_req_t* req)
 
 	heap_caps_free(buf);
 	return ret;
-}
-
-
-/**
- * The camera's CA certificate, as a downloadable file.  Installing it into a
- * device's trust store makes this camera's https fully trusted there.
- */
-static esp_err_t ca_get_handler(httpd_req_t* req)
-{
-	const unsigned char* pem;
-	size_t len;
-
-	if (!cert_get_ca(&pem, &len)) {
-		return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND,
-		                           "No certificate authority exists yet");
-	}
-
-	httpd_resp_set_type(req, "application/x-x509-ca-cert");
-	httpd_resp_set_hdr(req, "Content-Disposition",
-	                   "attachment; filename=\"tCam-CA.crt\"");
-	return httpd_resp_send(req, (const char*) pem, len);
 }
 
 
