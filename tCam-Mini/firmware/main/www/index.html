@@ -151,9 +151,9 @@ body.noscale #scalebar{display:none}
 .tab.sel{display:block}
 
 .sect{font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;
-      color:var(--dim);margin:20px 0 10px}
+      color:var(--dim);margin:16px 0 9px}
 .sect:first-child{margin-top:2px}
-.row{margin-bottom:12px}
+.row{margin-bottom:10px}
 label.lbl{display:block;font-size:12px;color:var(--dim);margin-bottom:6px}
 select,input[type=text],input[type=password],input[type=number]{
   width:100%;background:rgba(255,255,255,.05);color:var(--fg);
@@ -174,9 +174,15 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .seg button{flex:1;border:none;background:none;color:var(--dim);border-radius:8px;
             padding:8px 4px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
 .seg button.sel{background:var(--accent);color:#12060a}
-.chk{display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer}
+.chk{display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer}
 .chk input{width:17px;height:17px;accent-color:var(--accent);flex:none}
-.hint{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.5}
+/* Explanatory text is progressive disclosure: hidden until the (i) button in
+   the panel header turns it on, so the working surface stays instrument-dense.
+   .stay marks the exceptions that are feedback rather than documentation (the
+   install button writes its instructions into its hint; the saved-networks
+   hint doubles as that list's empty state). */
+.hint{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.5;display:none}
+body.showhelp .hint,.hint.stay{display:block}
 .kv{display:flex;justify-content:space-between;gap:10px;padding:6px 0;font-size:13px;
     border-bottom:1px solid var(--line)}
 .kv span:first-child{color:var(--dim)}
@@ -322,6 +328,9 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
 <aside id="panel" class="glass">
   <div id="panelhead">
     <h2>Settings</h2>
+    <button class="tbtn" id="bHelp" title="Show explanations">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 11.2v5"/><path d="M12 7.7v.2"/></svg>
+    </button>
     <button class="tbtn" id="bClose" title="Close">
       <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
@@ -335,10 +344,14 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
 
   <!-- DISPLAY -->
   <div class="tab sel" id="t-view">
-    <div class="sect">Palette</div>
-    <div class="row"><select id="pal"></select></div>
-
-    <div class="sect">Resolution</div>
+    <div class="sect">Image</div>
+    <div class="row grid2" style="align-items:center">
+      <select id="pal"></select>
+      <div class="seg" id="segUnits">
+        <button data-u="C" class="sel">&deg;C</button>
+        <button data-u="F">&deg;F</button>
+      </div>
+    </div>
     <div class="row">
       <div class="seg" id="segRes">
         <button data-s="1">160&times;120</button>
@@ -366,7 +379,7 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
         the current span into manual limits — useful to watch one thing heat up.</div>
     </div>
 
-    <div class="sect">Cursor</div>
+    <div class="sect">Measurement</div>
     <div class="row">
       <div class="seg" id="segCur">
         <button data-m="probe" class="sel">Probe</button>
@@ -377,28 +390,12 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
     </div>
     <label class="chk"><input type="checkbox" id="oSpot" checked><span>Show spot marker</span></label>
     <label class="chk"><input type="checkbox" id="oMinMax" checked><span>Show hot / cold markers</span></label>
-
-    <div class="sect">Isotherm alarm</div>
-    <label class="chk"><input type="checkbox" id="isoEn"><span>Highlight pixels above threshold</span></label>
+    <label class="chk"><input type="checkbox" id="isoEn"><span>Isotherm: highlight above a threshold</span></label>
     <div class="row">
       <input type="number" id="isoT" placeholder="threshold &deg;" step="1">
       <div class="hint">Pixels at or above the threshold are painted in a fixed alarm color
         regardless of palette — the fastest way to see "anything hotter than X" at a glance.</div>
     </div>
-
-    <div class="sect">Units</div>
-    <div class="row">
-      <div class="seg" id="segUnits">
-        <button data-u="C" class="sel">&deg;C</button>
-        <button data-u="F">&deg;F</button>
-      </div>
-    </div>
-
-    <div class="sect">Capture overlay</div>
-    <label class="chk"><input type="checkbox" id="ovCap" checked><span>Burn data overlay into captures</span></label>
-    <div class="hint">Applies to screenshots and recordings: camera name, timestamp, temperature
-      readouts, scale and markers. Toggle any time — including mid-recording — with the layers
-      button in the top bar or the O key.</div>
   </div>
 
   <!-- CAMERA -->
@@ -458,12 +455,16 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
     <div class="kv"><span>Frames received</span><span id="tFrames">0</span></div>
 
     <div class="sect">Capture</div>
+    <label class="chk"><input type="checkbox" id="ovCap" checked><span>Burn data overlay into captures</span></label>
     <div class="grid2">
       <button class="btn" id="snapPng">Save PNG</button>
       <button class="btn" id="snapRaw">Save raw</button>
     </div>
-    <div class="hint">Raw saves the camera's own json frame (.tjsn), the same format the
-      desktop application writes, so existing analysis tools read it.</div>
+    <div class="hint">The overlay burns the camera name, timestamp, readouts, scale and
+      markers into screenshots and recordings; the layers button in the top bar (or the
+      O key) toggles it any time, even mid-recording. Raw saves the camera's own json
+      frame (.tjsn), the same format the desktop application writes, so existing analysis
+      tools read it.</div>
     <div class="hint" style="margin-top:8px">Recordings and screenshots save to <b>this
       device's</b> Downloads folder — the camera has no storage of its own. A recording is
       written when you press stop; closing the tab mid-recording discards it. Note the
@@ -489,12 +490,12 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
 
     <div class="sect">Install as an app</div>
     <div class="row"><button class="btn" id="installBtn">Add to home screen</button></div>
-    <div class="hint" id="installHint">Installs a home screen icon that opens this camera
+    <div class="hint stay" id="installHint">Installs a home screen icon that opens this camera
       directly, without browser chrome.</div>
 
     <div class="sect">Saved networks</div>
     <div class="row" id="savedWrap" style="display:none"><div id="savedNets"></div></div>
-    <div class="hint" id="savedHint">The camera remembers up to five networks. At power-on it
+    <div class="hint stay" id="savedHint">The camera remembers up to five networks. At power-on it
       scans and joins the strongest one it can see, so it can move between locations without
       reconfiguration; if none are in range it broadcasts its own hotspot instead, and keeps
       checking every 30 seconds.</div>
@@ -1099,6 +1100,16 @@ function setStream(on){
 // panel + tabs
 $("bPanel").onclick=function(){ $("panel").classList.add("open"); };
 $("bClose").onclick=function(){ $("panel").classList.remove("open"); };
+
+// The (i) button reveals every explanation in the panel; off by default so the
+// working surface stays dense.  Remembered per device, like the other prefs.
+function setHelp(on){
+  document.body.classList.toggle("showhelp",on);
+  $("bHelp").classList.toggle("active",on);
+  store.set("help",on?"1":"");
+}
+$("bHelp").onclick=function(){ setHelp(!document.body.classList.contains("showhelp")); };
+setHelp(store.get("help","")==="1");
 Array.prototype.forEach.call(document.querySelectorAll("#tabs button"),function(b){
   b.onclick=function(){
     Array.prototype.forEach.call(document.querySelectorAll("#tabs button"),function(x){x.classList.remove("sel");});

@@ -22,6 +22,22 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.13
+FW revision 6.13 tightens the settings panel into an instrument-dense layout
+with help on demand.
+
+1. Explanatory text is now progressive disclosure: every hint paragraph is
+hidden by default, and an (i) button in the panel header - next to close -
+reveals them all.  The choice is remembered per device.  Two exceptions stay
+visible because they are feedback rather than documentation: the install
+button's instructions and the saved-networks empty state.
+2. The Display tab's eight section headers consolidate to three: Image
+(palette with the unit switch beside it, resolution, smoothing/mirror/flip),
+Temperature range, and Measurement (cursor, markers, isotherm).  The capture
+overlay toggle moves to the Camera tab's Capture section, next to the save
+buttons it governs.
+3. Section and row spacing tightened throughout the panel.
+
 #### FW 6.12
 FW revision 6.12 corrects documentation that overstated what parking the
 shutter protects.
