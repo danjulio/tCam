@@ -22,6 +22,28 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 5.6
+FW revision 5.6 fixes the video stream for ESP-IDF v5: the WebSocket session
+was never being claimed.
+
+1. IDF 4.4 invoked the WebSocket URI handler for the upgrade GET, and that is
+where the camera registered the browser as its client.  IDF 5 completes the
+handshake internally and deliberately never calls the handler for the upgrade
+(`httpd_uri.c`: "If the request is websocket handshake, then do not call the
+uri->handler").  So under IDF 5 the browser's connection opened successfully -
+the page truthfully said "connected" - while on the camera no client existed,
+and the ownership check rejected the browser's first command as coming from an
+unknown socket, closing the connection.  The browser reconnected every two
+seconds, forever.  The 5.4 stage logging plus the 5.5 noise cleanup made the
+failing stage visible: handshake yes, first command never.
+2. The session is now claimed when the first data frame arrives on a socket
+that holds no session, which is the correct model for IDF 5.  The IDF 4 GET
+path is retained for compatibility.
+3. This was the second break of the same feature with identical symptoms.  The
+first (FW 5.1) was the handler-table overflow introduced alongside camera
+discovery; this one arrived with the IDF 5 platform move in FW 5.0.  Camera
+discovery itself was not at fault either time.
+
 #### FW 5.5
 FW revision 5.5 dials the video connection before anything else, and clears the
 probe noise out of the AP-mode log.

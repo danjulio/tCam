@@ -267,6 +267,60 @@ static void web_cmd_clear_client()
 }
 
 
+/**
+ * Log which peer just took the WebSocket session
+ */
+static void log_ws_peer(int fd)
+{
+	struct sockaddr_storage addr;
+	socklen_t alen = sizeof(addr);
+
+	if (getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) {
+		if (addr.ss_family == AF_INET) {
+			struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
+			ESP_LOGI(TAG, "ws client %d connected from %s", fd,
+			         inet_ntoa(a4->sin_addr));
+			return;
+		}
+#if CONFIG_LWIP_IPV6
+		// IPv4 clients arrive v4-mapped on the IPv6 listener (see peer_str
+		// in web_task)
+		if (addr.ss_family == AF_INET6) {
+			const uint8_t* b = (const uint8_t*)
+				&((struct sockaddr_in6*) &addr)->sin6_addr;
+			int i, zeros = 1;
+
+			for (i = 0; i < 10; i++) if (b[i] != 0) zeros = 0;
+			if (zeros && (b[10] == 0xFF) && (b[11] == 0xFF)) {
+				ESP_LOGI(TAG, "ws client %d connected from %d.%d.%d.%d",
+				         fd, b[12], b[13], b[14], b[15]);
+				return;
+			}
+		}
+#endif
+	}
+	ESP_LOGI(TAG, "ws client %d connected", fd);
+}
+
+
+/**
+ * Claim the command session for the socket a frame just arrived on.  Returns
+ * false if a different client (the json TCP port) holds it.
+ */
+static bool ws_take_session(httpd_handle_t hd, int fd)
+{
+	if (!client_if_claim(CLIENT_IF_WS)) {
+		ESP_LOGW(TAG, "Refusing ws client %d - another client holds the session", fd);
+		return false;
+	}
+
+	init_command_processor();
+	web_cmd_set_client(hd, fd);
+	log_ws_peer(fd);
+	return true;
+}
+
+
 static esp_err_t ws_handler(httpd_req_t* req)
 {
 	char delim;
@@ -277,57 +331,32 @@ static esp_err_t ws_handler(httpd_req_t* req)
 
 	fd = httpd_req_to_sockfd(req);
 
-	// The opening GET completes the WebSocket handshake; no frame is present yet
+	// IDF 4.4 invoked this handler for the handshake GET, and the session used
+	// to be claimed here.  Kept for compatibility, but note IDF 5 does NOT take
+	// this path - see below.
 	if (req->method == HTTP_GET) {
-		if (!client_if_claim(CLIENT_IF_WS)) {
-			ESP_LOGW(TAG, "Refusing ws client - another client holds the session");
+		if (!ws_take_session(req->handle, fd)) {
 			// 503 tells the UI to show "camera in use" rather than retrying forever
 			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
 			                    "Camera is in use by another client");
 			return ESP_FAIL;
 		}
-
-		init_command_processor();
-		web_cmd_set_client(req->handle, fd);
-		{
-			struct sockaddr_storage addr;
-			socklen_t alen = sizeof(addr);
-			bool logged = false;
-
-			if (getpeername(fd, (struct sockaddr*) &addr, &alen) == 0) {
-				if (addr.ss_family == AF_INET) {
-					struct sockaddr_in* a4 = (struct sockaddr_in*) &addr;
-					ESP_LOGI(TAG, "ws client %d connected from %s", fd,
-					         inet_ntoa(a4->sin_addr));
-					logged = true;
-				}
-#if CONFIG_LWIP_IPV6
-				// IPv4 clients arrive v4-mapped on the IPv6 listener (see
-				// peer_str in web_task)
-				else if (addr.ss_family == AF_INET6) {
-					const uint8_t* b = (const uint8_t*)
-						&((struct sockaddr_in6*) &addr)->sin6_addr;
-					int i, zeros = 1;
-
-					for (i = 0; i < 10; i++) if (b[i] != 0) zeros = 0;
-					if (zeros && (b[10] == 0xFF) && (b[11] == 0xFF)) {
-						ESP_LOGI(TAG, "ws client %d connected from %d.%d.%d.%d",
-						         fd, b[12], b[13], b[14], b[15]);
-						logged = true;
-					}
-				}
-#endif
-			}
-			if (!logged) {
-				ESP_LOGI(TAG, "ws client %d connected", fd);
-			}
-		}
 		return ESP_OK;
 	}
 
-	// Only the client that owns the session may issue commands
+	// In IDF 5 the server completes the WebSocket handshake internally and
+	// deliberately never invokes the URI handler for the upgrade GET
+	// (httpd_uri.c: "If the request is websocket handshake, then do not call
+	// the uri->handler").  The first data frame is therefore the first time
+	// this code learns a client exists - the session must be claimed here.
+	// Under the old assumption the ownership check below simply rejected every
+	// frame from a client no code had registered, so the server closed each
+	// socket after its first command: the browser showed "connected" (the
+	// handshake IS completed), then lost the link two seconds later, forever.
 	if (fd != ws_fd) {
-		return ESP_FAIL;
+		if (!ws_take_session(req->handle, fd)) {
+			return ESP_FAIL;
+		}
 	}
 
 	// Read the frame header to learn the payload length
