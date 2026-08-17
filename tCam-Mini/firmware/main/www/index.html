@@ -436,10 +436,15 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
       <button class="btn" id="ffcBtn">Run flat field correction</button>
       <button class="btn" id="parkBtn">Park shutter</button>
       <div class="hint">Parking closes the Lepton's internal shutter over the detector —
-        protection against the sun for a camera left pointing out a window, and a safe
-        state to unplug in. The image goes flat while parked; reconnecting or running
-        FFC reopens it. The camera also parks itself after 10 seconds with no viewer
-        connected.</div>
+        protection for a camera left powered and unattended, such as one pointing out a
+        window, since focused sun is the one thing that reliably damages a microbolometer.
+        The image goes flat while parked; reconnecting or running FFC reopens it. The
+        camera also parks itself after 10 seconds with no viewer connected.
+        <br><br><b>Parking does not survive a power cut.</b> The shutter is held closed
+        electrically by the Lepton itself, so it springs back open the instant power is
+        removed — there is no firmware anywhere that can hold it. For storage, put a cap
+        over the aperture. Note also that the shutter sits <i>behind</i> the lens, so it
+        never protects the lens itself from dust or scratches.</div>
     </div>
 
     <div class="sect">Telemetry</div>
@@ -1286,7 +1291,7 @@ $("applyCam").onclick=function(){
 $("ffcBtn").onclick=$("bFfc").onclick;
 function parkShutter(){
   send("set_shutter",{park:1});
-  toast("Shutter parked \u2014 image goes flat. Safe to unplug; FFC reopens it.","ok");
+  toast("Shutter parked \u2014 image goes flat. FFC or a new viewer reopens it.","ok");
 }
 $("parkBtn").onclick=parkShutter;
 $("bPark").onclick=parkShutter;

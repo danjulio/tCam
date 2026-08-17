@@ -22,6 +22,21 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.12
+FW revision 6.12 corrects documentation that overstated what parking the
+shutter protects.
+
+1. The Camera tab hint and the confirmation toast both described a parked
+shutter as "a safe state to unplug in".  It is not.  The Lepton holds its
+shutter closed electrically - the flag is actively driven, not latched, which
+is why the FLIR SDK's shutter-position enum carries a BRAKE_ON state - so it
+springs back open the instant power is removed, and the Lepton's own processor
+dies at the same moment ours does.  No firmware can hold it.  Parking protects
+a camera that is powered and unattended, which is the realistic sun-exposure
+case; protecting a stored camera needs a physical cap over the aperture.  The
+UI now says exactly that, and repeats that the shutter sits behind the lens so
+it never protects the lens itself.  No functional change.
+
 #### FW 6.11
 FW revision 6.11 fixes video recordings never saving, restores the photo
 button on phones, and adds a vertical flip.
@@ -202,10 +217,11 @@ so a camera left pointing out a window cannot take focused sun on its
 microbolometer, the one thing that reliably damages one through the lens.  A
 newly connecting viewer reopens it, followed automatically by a flat field
 correction so every session starts freshly normalized.  A "Park shutter" button
-on the Camera tab closes it deliberately before unplugging; running FFC reopens
-a parked shutter.  Note the shutter cannot protect the lens itself - it is
-behind the lens; scratches and dust need a cap.  New `set_shutter` json command
-({"park":0|1}).
+on the Camera tab closes it on demand; running FFC reopens a parked shutter.
+Note the shutter cannot protect the lens itself - it is behind the lens;
+scratches and dust need a cap.  (This entry originally described parking as
+something done "before unplugging"; that was wrong - see FW 6.12.)  New
+`set_shutter` json command ({"park":0|1}).
 2. Display auto-ranging maps the 1st-99th percentile of each frame instead of
 the absolute minimum and maximum.  A handful of outlier pixels - one hot
 reflection, or the warm corners the optics produce as the housing heats between
