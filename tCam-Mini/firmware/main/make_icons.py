@@ -83,7 +83,15 @@ def make_png(size):
 
 
 def main():
-    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www")
+    # Output directory is given by the build; falls back to www/ so the script
+    # can still be run by hand from main/
+    if len(sys.argv) > 1:
+        here = sys.argv[1]
+    else:
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www")
+    if not os.path.isdir(here):
+        os.makedirs(here)
+
     for size in (192, 512):
         path = os.path.join(here, "icon-%d.png" % size)
         data = make_png(size)

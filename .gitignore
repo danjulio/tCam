@@ -4,3 +4,6 @@ python/examples/__pycache__
 python/palettes/__pycache__
 tCam-Mini/firmware/dependencies.lock
 tCam-Mini/firmware/sdkconfig.old
+tCam-Mini/firmware/main/www/index.html.gz
+tCam-Mini/firmware/main/www/icon-192.png
+tCam-Mini/firmware/main/www/icon-512.png

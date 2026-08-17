@@ -181,6 +181,13 @@ certificate on first boot.
 
 ## Configuration
 
+The web UI's compressed archive and its app icons are generated into the build
+directory every time you build, from `main/www/index.html`, which is the only
+one of them under version control.  Nothing generated is committed: zlib output
+differs slightly between machines, so a committed archive meant every build left
+the working tree dirty and the next `git pull` refused to merge.  Edit
+`index.html` and rebuild; there is no separate step.
+
 `sdkconfig` is generated and can be deleted at any time; it is rebuilt from
 `sdkconfig.defaults`, which holds every deliberate deviation from the IDF
 defaults with the reason recorded beside it.  Change settings there, not in the
