@@ -715,10 +715,16 @@ static esp_err_t ota_post_handler(httpd_req_t* req)
  */
 static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err)
 {
+	char body[384];
 	char location[40];
 	net_info_t* net_infoP = (*net_get_info)();
 
 	(void) err;   // every 404 gets the same treatment
+
+	// Name what was asked for.  An unregistered endpoint is answered here rather
+	// than refused, so without this line a missing route is indistinguishable
+	// from a working one - which is exactly how a missing /ws stayed hidden.
+	ESP_LOGI(TAG, "No handler for '%s' - redirecting", req->uri);
 
 	// cur_ip_addr index 3 holds the first octet (see ps_utilities)
 	snprintf(location, sizeof(location), "http://%d.%d.%d.%d/",
@@ -727,7 +733,18 @@ static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err)
 
 	httpd_resp_set_status(req, "302 Found");
 	httpd_resp_set_hdr(req, "Location", location);
-	httpd_resp_send(req, NULL, 0);
+
+	// A body as well as the header.  Windows' captive-portal window and several
+	// phone portal browsers render the response instead of following the
+	// redirect, and an empty document leaves them sitting on a blank page (or
+	// their own home page), which reads as the portal having failed.
+	snprintf(body, sizeof(body),
+	         "<!doctype html><meta http-equiv=refresh content=\"0;url=%s\">"
+	         "<body style=\"background:#0b0e13;color:#eef2f7;font-family:sans-serif\">"
+	         "<a style=\"color:#ff7a1a\" href=\"%s\">Open the camera</a></body>",
+	         location, location);
+	httpd_resp_set_type(req, "text/html");
+	httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 
 	return ESP_OK;
 }

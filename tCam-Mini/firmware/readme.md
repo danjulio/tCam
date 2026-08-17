@@ -22,6 +22,28 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 5.3
+FW revision 5.3 fixes a crash in the UI and makes an unusable page say why.
+
+1. Tapping the image before the first frame arrived threw a TypeError out of the
+click handler - the readout code indexed the pixel array while it was still
+null.  The marker moved, every readout went stale, and the console filled with
+`Cannot read properties of null`.  Readouts now show "--" until a frame exists.
+2. When the page is served over HTTPS the video connection cannot be made:
+browsers accept a self-signed certificate for pages but refuse to extend that
+same exception to a WebSocket, and nothing on the camera can override it.  The
+UI detected this only after five failed attempts, which the reconnect backoff
+stretched to nearly forty seconds - long enough to read as a dead page.  It now
+says so on the first failure and offers the HTTP address, which streams normally.
+3. Unhandled requests are logged with the URI they asked for.  An unregistered
+endpoint is answered by the captive-portal redirect rather than refused, so
+without this a missing route looks exactly like a working one - which is how a
+missing `/ws` stayed hidden for several releases.
+4. The captive-portal redirect carries an HTML body as well as the Location
+header.  Windows' portal window and several phone portal browsers render the
+response instead of following the redirect, and an empty document left them on
+a blank page or their own home page, which reads as the portal having failed.
+
 #### FW 5.2
 FW revision 5.2 makes the recovery access point actually usable while it is up.
 

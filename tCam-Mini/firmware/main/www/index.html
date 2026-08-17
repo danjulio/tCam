@@ -831,6 +831,11 @@ function drawMarks(){
 function updateReadouts(){
   if(agcOn){
     $("rSpot").textContent=$("rMax").textContent=$("rMin").textContent=$("rProbe").textContent="AGC";
+  }else if(!raw){
+    // No frame has arrived yet.  Tapping the image calls straight through to
+    // here, and reading the pixel array before it exists threw out of the click
+    // handler - leaving the marker drawn but every readout stale.
+    $("rSpot").textContent=$("rMax").textContent=$("rMin").textContent=$("rProbe").textContent="--";
   }else{
     $("rSpot").textContent = spotK!==null ? fmt(spotK*res-273.15)
                                           : fmt(toC(raw[spotPos.y*W+spotPos.x]));
@@ -949,17 +954,22 @@ function connect(){
       // re-accepting fixes it; the practical answer is the http origin, where
       // the stream is unaffected.
       wsFails++;
-      if(location.protocol==="https:" && wsFails===5){
-        $("substate").textContent="browser blocks video over https here";
-        if(confirm("Your browser accepted the camera's certificate for this page, "+
-                   "but refuses to apply it to the encrypted video connection - a "+
-                   "known limitation with self-signed certificates and WebSockets.\n\n"+
-                   "Switch to the standard HTTP connection to get the video?")){
+      // Ask on the FIRST failure, not the fifth.  With the reconnect backoff the
+      // fifth landed almost forty seconds in, which is long enough that the page
+      // reads as simply broken.  The video connection cannot succeed on this
+      // origin, so there is nothing to be gained by waiting to say so.
+      if(location.protocol==="https:" && wsFails===1){
+        $("substate").textContent="video needs the http address — see prompt";
+        if(confirm("The video connection cannot be made over HTTPS.\n\n"+
+                   "Browsers accept a self-signed certificate for pages, but "+
+                   "refuse to apply that same exception to the encrypted video "+
+                   "stream (WebSocket). Nothing on the camera can override it.\n\n"+
+                   "Switch to the HTTP address, where the video works normally?")){
           location.href="http://"+location.host+"/";
-        }else{
-          toast("Video is unavailable over HTTPS in this browser — the HTTP "+
-                "address streams normally","err");
+          return;
         }
+        $("substate").textContent="no video over https — use http://"+location.host+"/";
+        toast("Video needs http://"+location.host+"/","err");
       }
     }
     scheduleReconnect();
