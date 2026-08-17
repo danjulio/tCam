@@ -102,6 +102,7 @@ static esp_err_t icon_get_handler(httpd_req_t* req);
 static esp_err_t discover_get_handler(httpd_req_t* req);
 static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err);
 static void register_handlers(httpd_handle_t hd);
+static void register_uri(httpd_handle_t hd, const httpd_uri_t* uri);
 static bool start_webserver();
 static void start_https_server();
 static int count_connections(httpd_handle_t hd);
@@ -128,11 +129,15 @@ void web_task()
 	// esp-tls-mbedtls (which reports the mbedTLS error code) was silenced while
 	// esp_https_server's contentless "esp_tls_create_server_session failed" echo
 	// survived, leaving a failure that could not be diagnosed without a rebuild.
+	// Note which tags are NOT quieted.  httpd_uri warns - only warns - when the
+	// handler table is full, and silencing that hid a missing /ws endpoint behind
+	// a symptom that looked like a TLS fault for several releases.  httpd keeps
+	// its errors for the same reason: a server that fails to bind should say so.
 	esp_log_level_set("esp-tls-mbedtls", ESP_LOG_ERROR);
 	esp_log_level_set("esp_https_server", ESP_LOG_NONE);
-	esp_log_level_set("httpd", ESP_LOG_NONE);
+	esp_log_level_set("httpd", ESP_LOG_ERROR);
 	esp_log_level_set("httpd_txrx", ESP_LOG_ERROR);
-	esp_log_level_set("httpd_uri", ESP_LOG_ERROR);
+	esp_log_level_set("httpd_uri", ESP_LOG_WARN);
 	esp_log_level_set("httpd_parse", ESP_LOG_ERROR);
 	ESP_LOGI(TAG, "Redundant TLS log echoes suppressed; failure reasons still logged");
 #endif
@@ -213,9 +218,10 @@ static bool start_webserver()
 
 	config.server_port      = WEB_PORT;
 	config.ctrl_port        = 32768;
-	config.stack_size       = WEB_TASK_STACK_SIZE;
-	config.max_open_sockets = WEB_MAX_SOCKETS;
-	config.lru_purge_enable = true;
+	config.stack_size        = WEB_TASK_STACK_SIZE;
+	config.max_open_sockets  = WEB_MAX_SOCKETS;
+	config.max_uri_handlers  = WEB_MAX_URI_HANDLERS;
+	config.lru_purge_enable  = true;
 	// Wildcard matching lets one handler answer every captive-portal probe URL
 	config.uri_match_fn     = httpd_uri_match_wildcard;
 	// Long enough that a slow phone does not get dropped mid-upload
@@ -238,6 +244,8 @@ static bool start_webserver()
 
 static void register_handlers(httpd_handle_t hd)
 {
+	esp_err_t ret;
+
 	static const httpd_uri_t index_uri = {
 		.uri = "/", .method = HTTP_GET, .handler = index_get_handler, .user_ctx = NULL
 	};
@@ -264,18 +272,41 @@ static void register_handlers(httpd_handle_t hd)
 		.uri = "/api/discover", .method = HTTP_GET, .handler = discover_get_handler, .user_ctx = NULL
 	};
 
-	httpd_register_uri_handler(hd, &manifest_uri);
-	httpd_register_uri_handler(hd, &icon192_uri);
-	httpd_register_uri_handler(hd, &icon512_uri);
-	httpd_register_uri_handler(hd, &discover_uri);
-	httpd_register_uri_handler(hd, &index_uri);
-	httpd_register_uri_handler(hd, &status_uri);
-	httpd_register_uri_handler(hd, &scan_uri);
-	httpd_register_uri_handler(hd, &ota_uri);
-	web_cmd_register(hd);
+	// The WebSocket goes in first.  It carries the image stream, so if the table
+	// ever runs short again it must not be the endpoint that loses its slot.
+	ret = web_cmd_register(hd);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Could not register /ws (%s) - the image stream cannot run "
+		              "without it", esp_err_to_name(ret));
+	}
+
+	register_uri(hd, &index_uri);
+	register_uri(hd, &status_uri);
+	register_uri(hd, &scan_uri);
+	register_uri(hd, &ota_uri);
+	register_uri(hd, &manifest_uri);
+	register_uri(hd, &icon192_uri);
+	register_uri(hd, &icon512_uri);
+	register_uri(hd, &discover_uri);
 
 	// Anything else - including every OS connectivity probe - is bounced to the UI
 	httpd_register_err_handler(hd, HTTPD_404_NOT_FOUND, redirect_handler);
+}
+
+
+/**
+ * Install one handler, reporting failure.  A handler that does not install is
+ * invisible at runtime - the request simply falls through to the 404 redirect,
+ * which answers it with something that looks like a working server - so the
+ * registration has to say so itself.
+ */
+static void register_uri(httpd_handle_t hd, const httpd_uri_t* uri)
+{
+	esp_err_t ret = httpd_register_uri_handler(hd, uri);
+
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Could not register %s (%s)", uri->uri, esp_err_to_name(ret));
+	}
 }
 
 
@@ -333,6 +364,7 @@ static void start_https_server()
 	// time purging half-finished handshakes, which the client saw as connection
 	// resets.  The per-session buffers come from PSRAM now, so slots are cheap.
 	conf.httpd.max_open_sockets  = WEB_MAX_SOCKETS;
+	conf.httpd.max_uri_handlers  = WEB_MAX_URI_HANDLERS;
 	conf.httpd.lru_purge_enable  = true;
 	conf.httpd.uri_match_fn      = httpd_uri_match_wildcard;
 	// Generous relative to the ~750 mSec an ECDHE handshake takes here

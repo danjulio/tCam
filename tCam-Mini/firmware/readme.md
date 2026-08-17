@@ -22,6 +22,32 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 5.1
+FW revision 5.1 fixes the WebSocket endpoint never being installed.
+
+1. `esp_http_server` allows eight URI handlers by default.  This server registers
+nine, and registered the WebSocket last, so `/ws` was the one that did not fit.
+The return value was not checked, so nothing said so.  Requests to `/ws` then
+fell through to the 404 handler, which redirects for the captive portal - and a
+browser opening a WebSocket that receives a 302 instead of a 101 fails
+immediately, before the connection opens.  The handler table is now sized with
+headroom, the WebSocket is registered first, and every registration reports its
+own failure.
+2. This is the actual cause of the symptom reported since FW 4.0: the page
+loads, the settings panels are live, the signal strength and client count
+update - all of which are plain HTTP - while the image never arrives and the
+sensor readouts stay blank.  Only the stream travels over the WebSocket.  The
+fault arrived with `/api/discover` (the ninth handler) in the camera discovery
+release, which is why it appeared alongside that feature.
+3. The repeating mbedTLS `-0x7780` alerts were real but unrelated: a browser
+retrying a WebSocket that could never succeed, aborting each handshake.  They
+were a symptom of this bug over HTTPS, not a second fault, and the earlier
+releases that chased them were treating the noise rather than the cause.
+4. Log suppression is narrowed.  `httpd_uri` warns - and only warns - when the
+handler table is full, and FW 4.1 had silenced that tag to ERROR, hiding the one
+message that named the fault.  Warnings from it are logged again, and `httpd`
+keeps its errors so a server that fails to bind can still say so.
+
 #### FW 5.0
 FW revision 5.0 moves the firmware from ESP-IDF v4.4.4 to v5.5.
 

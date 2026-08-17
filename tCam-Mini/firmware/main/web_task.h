@@ -62,6 +62,18 @@
 // it does not catch the overrun.
 #define WEB_MAX_SOCKETS 3
 
+// URI handler slots per server instance.  esp_http_server defaults to 8 and this
+// server registers nine handlers, the WebSocket endpoint among them - and it
+// registers that one last, so the endpoint that carries the entire image stream
+// was the one that silently failed to install.  Requests to /ws then fell
+// through to the 404 handler, which redirects, so the browser's WebSocket saw a
+// 302 instead of a 101 and never opened.  Sized with headroom; each slot costs
+// one pointer.
+//
+// Adding a route means checking this number.  register_handlers() now reports a
+// registration failure rather than leaving it to be inferred from behaviour.
+#define WEB_MAX_URI_HANDLERS 12
+
 
 //
 // Web Task API
