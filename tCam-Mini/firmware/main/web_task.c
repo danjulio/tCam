@@ -780,13 +780,19 @@ static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err)
  */
 static esp_err_t manifest_get_handler(httpd_req_t* req)
 {
-	char buf[640];
+	char buf[768];
 	int len;
 	net_info_t* net_infoP = (*net_get_info)();
 
+	// id gives the installed app a stable identity independent of the entry URL,
+	// and launch_handler makes opening the camera focus the already-running app
+	// window instead of stacking a second copy - the closest the web platform
+	// gets to "launch the installed app".
 	len = snprintf(buf, sizeof(buf),
 		"{\"name\":\"%s Thermal Camera\",\"short_name\":\"%s\","
+		"\"id\":\"/\","
 		"\"start_url\":\"/\",\"scope\":\"/\",\"display\":\"standalone\","
+		"\"launch_handler\":{\"client_mode\":\"focus-existing\"},"
 		"\"orientation\":\"any\",\"background_color\":\"#07090d\","
 		"\"theme_color\":\"#07090d\","
 		"\"description\":\"Live thermal viewer and configuration for %s\","

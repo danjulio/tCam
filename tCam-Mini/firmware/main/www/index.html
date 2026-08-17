@@ -230,6 +230,11 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
   #scalebar{right:8px;padding:8px 6px}
   #scalegrad{height:min(32vh,200px);width:8px}
 }
+#escBar{position:fixed;top:0;left:0;right:0;z-index:99;display:flex;align-items:center;
+  gap:10px;padding:10px 14px;background:var(--accent);color:#0b0e13;font-size:13px;font-weight:600}
+#escBar button{border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}
+#escBar .go{background:#0b0e13;color:#fff}
+#escBar .x{background:transparent;color:#0b0e13;font-size:16px;padding:6px 8px}
 </style>
 </head>
 <body>
@@ -1836,6 +1841,27 @@ try{
   // Secondary comforts failing must never look like the camera failing
   toast("Some page features unavailable here: "+e.message,"err");
 }
+
+/* ==================== captive-portal escape ==================== */
+// Android's "sign in to network" window is a restricted WebView (its user agent
+// carries the "wv" token).  Nothing on the network side can make the OS launch
+// the installed app instead - that flow is owned by the OS - but one tap can
+// escape to the default browser, where an installed app is one more tap (or
+// where Chrome offers its open-in-app chip directly).
+try{
+  if(/Android/.test(navigator.userAgent) && /\bwv\b/.test(navigator.userAgent) &&
+     !(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)){
+    var esc=document.createElement("div");
+    esc.id="escBar";
+    esc.innerHTML='<span style="flex:1">Network sign-in window — the full app works better.</span>'+
+                  '<button class="go">Open in browser</button><button class="x">\u00d7</button>';
+    document.body.appendChild(esc);
+    esc.querySelector(".go").onclick=function(){
+      location.href="intent://"+location.host+"/#Intent;scheme=http;action=android.intent.action.VIEW;end";
+    };
+    esc.querySelector(".x").onclick=function(){ esc.remove(); };
+  }
+}catch(e){}
 
 })();
 </script>

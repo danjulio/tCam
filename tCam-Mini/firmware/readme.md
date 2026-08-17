@@ -22,6 +22,23 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.1
+FW revision 6.1 tightens the installed-app experience and adds an escape hatch
+from the captive-portal window.
+
+1. The manifest gains a stable app `id` and `launch_handler: focus-existing`,
+so opening the camera focuses the already-running installed app instead of
+stacking a second copy - the closest the web platform comes to "launch the
+installed app".
+2. No operating system lets a captive portal auto-launch an installed app; the
+"sign in to network" flow belongs to the OS and the network side cannot reach
+into it.  What the camera can do is make leaving that window one tap: when the
+UI detects it is running inside Android's restricted sign-in WebView, it shows
+a bar offering "Open in browser", which escapes to the default browser via an
+intent URL - where the installed app is directly available.  Cameras without
+the app installed keep exactly the previous behavior; the bar is dismissible
+and never appears in a normal browser or in the installed app.
+
 #### FW 6.0
 FW revision 6.0 teaches the camera to roam: it remembers up to five WiFi
 networks and joins whichever one it can see.
