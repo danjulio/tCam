@@ -30,15 +30,29 @@ nothing else has to be installed separately.
 
 When the installer runs:
 
-- **Installation directory: `C:\esp`** — do not accept the default under your
-  user profile.  Windows has a 260-character path limit and the ESP32 build tree
-  is deeply nested; a long install path produces `Filename too long` errors part
-  way through the build.  Keep it short.
+- **Keep the installation directory short** — `C:\Espressif` (the installer's own
+  default) or `C:\esp`.  Do not put it under your user profile.  Windows has a
+  260-character path limit and the ESP32 build tree is deeply nested; a long
+  install path produces `Filename too long` errors part way through the build.
 - Let it install its own **Python** and **Git** unless you already have them.
 - Tick the checkbox to **register the ESP-IDF PowerShell/CMD shortcuts** in the
   Start menu.  That shortcut is how you open a working build shell.
 
 Installation takes 10–20 minutes.
+
+### If a different IDF version is already installed
+
+v4.4.4 coexists with other versions — each framework lives in its own folder
+under `<install dir>\frameworks\` and they share one tools directory.  Point the
+v4.4.4 installer at the **same** install directory as the existing version
+rather than a new one, so it reuses the toolchains instead of duplicating
+gigabytes of them.  You get a second Start-menu shortcut, and each shortcut
+activates its own version.
+
+This project will **not** build under IDF v5.x — the component layout, the
+`esp_https_server` API and the `sdkconfig` format all changed after v4.4.  If a
+build fails immediately with unknown Kconfig symbols or missing components,
+check `echo $env:IDF_PATH` first; it must end in `esp-idf-v4.4.4`.
 
 
 ## 3. Get the source
@@ -64,20 +78,64 @@ recognized`.
 Two ways to get a working shell:
 
 - Start menu → **ESP-IDF 4.4 PowerShell** (or *ESP-IDF 4.4 CMD*), or
-- open any PowerShell and run the activation script:
+- open any PowerShell and run the activation script for the v4.4.4 framework:
 
 ```
-C:\esp\esp-idf\export.ps1
+C:\Espressif\frameworks\esp-idf-v4.4.4\export.ps1
 ```
+
+Substitute your install directory if you did not use `C:\Espressif`.  The
+activation banner prints `Setting IDF_PATH:` — confirm it names **v4.4.4** and
+not some other version that happens to also be installed.
 
 Verify with `idf.py --version`.  Note: on a Windows install this often prints
 something like `ESP-IDF v1.0.3` — that is the version of the small `idf.py`
 launcher executable, not the IDF itself, and it is harmless.  To confirm the real
-IDF version, run `git -C C:\esp\esp-idf describe --tags`, which should report
-`v4.4.4`.
+IDF version, run `echo $env:IDF_PATH` — it must end in `esp-idf-v4.4.4`.
 
 
-## 5. Fix the Python `pkg_resources` error
+## 5. Clear `SSLKEYLOGFILE` if it is set
+
+Some security software (endpoint protection with file virtualisation, corporate
+DLP agents) sets a machine-wide `SSLKEYLOGFILE` environment variable pointing at
+a path the user cannot write, typically a volume-GUID path such as
+`\\?\Volume{...}\virtual_file.log`.  Python's `urllib3` opens that file whenever
+`requests` is imported, so **every** `idf.py` invocation dies before it does any
+work:
+
+```
+  File "...\urllib3\util\ssl_.py", line 359, in create_urllib3_context
+    context.keylog_filename = sslkeylogfile
+PermissionError: [Errno 13] Permission denied: '\\?\Volume{...}\virtual_file.log'
+```
+
+The variable only exists to dump TLS session keys for packet-capture debugging;
+nothing needs it.  Find where it is set:
+
+```
+$env:SSLKEYLOGFILE
+[Environment]::GetEnvironmentVariable("SSLKEYLOGFILE","User")
+[Environment]::GetEnvironmentVariable("SSLKEYLOGFILE","Machine")
+```
+
+Clear it for your account and for the current window:
+
+```
+[Environment]::SetEnvironmentVariable("SSLKEYLOGFILE",$null,"User")
+$env:SSLKEYLOGFILE=""
+```
+
+If the *Machine* scope held the value, clear that from an **Administrator**
+PowerShell:
+
+```
+[Environment]::SetEnvironmentVariable("SSLKEYLOGFILE",$null,"Machine")
+```
+
+Close all PowerShell windows and open a fresh one afterwards.
+
+
+## 6. Fix the Python `pkg_resources` error
 
 ESP-IDF v4.4.4 predates a breaking change in Python packaging: `setuptools` 81
 removed `pkg_resources`, which the IDF build scripts import.  On a new install
@@ -97,7 +155,7 @@ Do not install a bare `setuptools` — pip will pull the newest version and the
 error returns.  The version pin is the fix.
 
 
-## 6. Build
+## 7. Build
 
 **Watch the directory.**  This repository contains two separate projects:
 
@@ -123,7 +181,7 @@ The first build takes several minutes; later builds are incremental.  It ends
 with a summary of the binary size and the `esptool.py write_flash` arguments.
 
 
-## 7. Flash
+## 8. Flash
 
 With the camera plugged in and the COM port from step 1 (`COM10` in this
 example):
@@ -139,7 +197,7 @@ If flashing fails to start, hold the board's **Boot** button while the tool says
 `Connecting....`, or lower the speed with `-b 115200`.
 
 
-## 8. If the camera will not boot
+## 9. If the camera will not boot
 
 If the board was ever flashed with the wrong project, or a previous flash was
 interrupted, erase it completely and reflash:
@@ -159,11 +217,12 @@ certificate on first boot.
 ```
 # once per machine
 install CP210x driver
-install ESP-IDF v4.4.4 offline installer to C:\esp
-python -m pip install "setuptools<81"     (inside an ESP-IDF shell)
+install ESP-IDF v4.4.4 offline installer to C:\Espressif
+[Environment]::SetEnvironmentVariable("SSLKEYLOGFILE",$null,"User")   (if set)
+python -m pip install "setuptools<81"     (inside the ESP-IDF 4.4 shell)
 
 # once per PowerShell window
-C:\esp\esp-idf\export.ps1
+C:\Espressif\frameworks\esp-idf-v4.4.4\export.ps1
 
 # build and flash
 idf.py -C C:\tcam\tCam-Mini\firmware build
@@ -175,10 +234,12 @@ idf.py -C C:\tcam\tCam-Mini\firmware -p COM10 -b 921600 flash monitor
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `idf.py : The term 'idf.py' is not recognized` | New shell, environment not activated | Run `C:\esp\esp-idf\export.ps1` or use the Start menu shortcut |
+| `idf.py : The term 'idf.py' is not recognized` | New shell, environment not activated | Run `C:\Espressif\frameworks\esp-idf-v4.4.4\export.ps1` or use the Start menu shortcut |
 | `ModuleNotFoundError: No module named 'pkg_resources'` | setuptools 81+ removed it | `python -m pip install "setuptools<81"` |
-| `Filename too long` during build | IDF or source installed under a long path | Reinstall to `C:\esp`, clone to `C:\tcam` |
+| `PermissionError: ... virtual_file.log` inside `urllib3` on every `idf.py` | Security software set `SSLKEYLOGFILE` to an unwritable path | Clear the variable (step 5) |
+| Build fails at once with unknown Kconfig symbols or missing components | An IDF v5.x shell is active | Activate the v4.4.4 framework; check `echo $env:IDF_PATH` |
+| `Filename too long` during build | IDF or source installed under a long path | Reinstall to `C:\Espressif` or `C:\esp`, clone to `C:\tcam` |
 | `Detected size(8192k) smaller than ... image header(16384k)`, reboot loop | Built/flashed the tCam handheld project by mistake | `erase-flash`, then rebuild with `-C C:\tcam\tCam-Mini\firmware` |
 | A directory literally named `~` appears | PowerShell does not expand `~` in every context | Use full paths; delete the stray directory |
-| `idf.py --version` prints `v1.0.3` | That is the launcher executable's version | Harmless; check `git -C C:\esp\esp-idf describe --tags` instead |
+| `idf.py --version` prints `v1.0.3` | That is the launcher executable's version | Harmless; check `echo $env:IDF_PATH` instead |
 | No COM port in Device Manager | Missing CP210x driver, or a charge-only USB cable | Install the Silicon Labs driver; try a known data cable |
