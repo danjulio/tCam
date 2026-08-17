@@ -116,30 +116,36 @@ size_t log_ring_copy(char* dst, size_t max)
 //
 static int ring_vprintf(const char* fmt, va_list args)
 {
-	char buf[256];
-	int len;
+	// Shared scratch, guarded by the ring mutex.  NOT on the stack: this hook
+	// runs on every task that logs, including ones with stacks sized long ago
+	// for a plain UART vprintf - a 256 byte local here overflowed lep_task the
+	// moment 6.4 booted.  Static costs internal RAM once instead of stack per
+	// caller.
+	static char scratch[256];
+	int len = 0;
 	va_list args_copy;
 
 	// The serial console gets the untouched original call
 	va_copy(args_copy, args);
 
-	len = vsnprintf(buf, sizeof(buf), fmt, args);
-	if (len > 0) {
-		size_t n = ((size_t) len < sizeof(buf)) ? (size_t) len : sizeof(buf) - 1;
-		size_t i;
+	// Never log from in here and never block long - drop the entry rather
+	// than stall the logging task if the mutex is held
+	if (xSemaphoreTake(ring_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+		len = vsnprintf(scratch, sizeof(scratch), fmt, args);
+		if (len > 0) {
+			size_t n = ((size_t) len < sizeof(scratch)) ? (size_t) len
+			                                            : sizeof(scratch) - 1;
+			size_t i;
 
-		// Never log from in here and never block long - drop the entry rather
-		// than stall the logging task if the mutex is held
-		if (xSemaphoreTake(ring_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
 			for (i = 0; i < n; i++) {
-				ring[head] = buf[i];
+				ring[head] = scratch[i];
 				if (++head >= LOG_RING_SIZE) {
 					head = 0;
 					wrapped = true;
 				}
 			}
-			xSemaphoreGive(ring_mutex);
 		}
+		xSemaphoreGive(ring_mutex);
 	}
 
 	len = (prev_vprintf != NULL) ? prev_vprintf(fmt, args_copy) : len;

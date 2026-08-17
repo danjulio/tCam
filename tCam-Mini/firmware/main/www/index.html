@@ -1012,22 +1012,31 @@ function connect(){
       // re-accepting fixes it; the practical answer is the http origin, where
       // the stream is unaffected.
       wsFails++;
-      // Ask on the FIRST failure, not the fifth.  With the reconnect backoff the
-      // fifth landed almost forty seconds in, which is long enough that the page
-      // reads as simply broken.  The video connection cannot succeed on this
-      // origin, so there is nothing to be gained by waiting to say so.
+      // The video connection cannot succeed on an https origin (browsers do
+      // not extend a self-signed certificate exception to WebSockets), so act
+      // on the first failure - and remember the user's answer so this asks
+      // exactly once, ever.  "OK" makes every future https visit hop to http
+      // by itself; "Cancel" keeps quiet apart from the status line.
       if(location.protocol==="https:" && wsFails===1){
-        $("substate").textContent="video needs the http address — see prompt";
-        if(confirm("The video connection cannot be made over HTTPS.\n\n"+
-                   "Browsers accept a self-signed certificate for pages, but "+
-                   "refuse to apply that same exception to the encrypted video "+
-                   "stream (WebSocket). Nothing on the camera can override it.\n\n"+
-                   "Switch to the HTTP address, where the video works normally?")){
+        var choice=store.get("httpsVideo","");
+        if(choice==="http"){
           location.href="http://"+location.host+"/";
           return;
         }
+        if(choice!=="stay"){
+          if(confirm("The video connection cannot be made over HTTPS.\n\n"+
+                     "Browsers accept a self-signed certificate for pages, but "+
+                     "refuse to apply that same exception to the encrypted video "+
+                     "stream (WebSocket). Nothing on the camera can override it.\n\n"+
+                     "Switch to the HTTP address, where the video works normally?\n"+
+                     "(Your choice is remembered - this will not ask again.)")){
+            store.set("httpsVideo","http");
+            location.href="http://"+location.host+"/";
+            return;
+          }
+          store.set("httpsVideo","stay");
+        }
         $("substate").textContent="no video over https — use http://"+location.host+"/";
-        toast("Video needs http://"+location.host+"/","err");
       }
     }
     scheduleReconnect();

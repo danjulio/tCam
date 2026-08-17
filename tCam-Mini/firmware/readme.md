@@ -22,6 +22,20 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.5
+FW revision 6.5 fixes a boot crash introduced by 6.4's log capture.
+
+1. The 6.4 log hook placed a 256-byte buffer on the stack of every task that
+logs.  lep_task's stack was sized in the IDF 4.4 era with no margin for that,
+and it overflowed during Lepton init - a boot loop, with stack corruption
+garbling the emissivity readout on the way down.  The hook now formats into a
+static scratch buffer under the ring mutex (near-zero cost on the calling
+task's stack), and the thin task stacks from the original firmware get modern
+headroom: lep_task 2304 to 3072, rsp_task 2816 to 3328, ctrl_task 2176 to 2560.
+2. The "video cannot run over HTTPS" prompt now remembers its answer.  OK makes
+every future https visit hop to the http address automatically; Cancel keeps it
+quiet apart from the status line.  It asks exactly once per browser.
+
 #### FW 6.4
 FW revision 6.4 reverts the FFC policy change and adds a web-visible system log.
 
