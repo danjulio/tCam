@@ -216,20 +216,25 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
   #panel{width:100vw;border-width:1px 0 0 0}
   .chip span{font-size:14px}
   .chip{padding:6px 10px}
-  /* compact top bar: sized for a ~412 CSS px phone in portrait.  The screenshot
-     button is dropped here (Save PNG lives in the panel); recording keeps its
-     button since it carries live state. */
-  #fps,#bFfc,#bShot,#substate{display:none}
+  /* compact top bar: sized for a ~412 CSS px phone in portrait.  Every ACTION
+     stays reachable - only passive text yields.  Save PNG lives in the panel. */
+  #fps,#bShot,#substate{display:none}
   #netinfo .sep,#netinfo .usericon,#cliTxt,#sigTxt{display:none}
-  #topbar{top:8px;left:8px;right:8px;gap:5px;padding:6px 6px 6px 11px}
+  #topbar{top:8px;left:8px;right:8px;gap:4px;padding:6px 6px 6px 10px}
   #idblock{min-width:0;flex:0 1 auto}
-  #camname{font-size:13px;max-width:24vw}
-  .tbtn{width:34px;height:34px;border-radius:9px}
-  .tbtn svg{width:18px;height:18px}
+  #camname{font-size:13px;max-width:18vw}
+  .tbtn{width:32px;height:32px;border-radius:8px;flex:none}
+  .tbtn svg{width:17px;height:17px}
   /* the scale bar stays visible on phones, just slimmer */
   #scalebar{right:8px;padding:8px 6px}
   #scalegrad{height:min(32vh,200px);width:8px}
 }
+#askBar{position:fixed;bottom:0;left:0;right:0;z-index:99;display:flex;align-items:center;
+  gap:10px;padding:12px 14px;background:var(--panel,#12161d);color:var(--fg,#eef2f7);
+  border-top:1px solid var(--line);font-size:13px;font-weight:600}
+#askBar button{border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer}
+#askBar .go{background:var(--accent);color:#0b0e13}
+#askBar .x{background:transparent;color:var(--dim)}
 #escBar{position:fixed;top:0;left:0;right:0;z-index:99;display:flex;align-items:center;
   gap:10px;padding:10px 14px;background:var(--accent);color:#0b0e13;font-size:13px;font-weight:600}
 #escBar button{border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}
@@ -278,14 +283,14 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
   <button class="tbtn" id="bRec" title="Record video (R)">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>
   </button>
-  <button class="tbtn" id="bPlay" title="Pause / resume stream (Space)">
-    <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-  </button>
   <button class="tbtn" id="bShot" title="Save PNG">
     <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg>
   </button>
   <button class="tbtn" id="bFfc" title="Run flat field correction">
     <svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3.2"/></svg>
+  </button>
+  <button class="tbtn" id="bPark" title="Park shutter (protect sensor)">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l5.7 5.7M12 12L6.3 17.7"/></svg>
   </button>
   <button class="tbtn" id="bFull" title="Fullscreen">
     <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
@@ -1093,9 +1098,6 @@ function renderSavedNets(list){
 
 function setStream(on){
   streaming=on;
-  $("bPlay").innerHTML = on
-    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5l11 7-11 7z"/></svg>';
   if(on) send("stream_on",{delay_msec:parseInt($("fi").value,10),num_frames:0});
   else   send("stream_off");
 }
@@ -1209,7 +1211,6 @@ $("canwrap").addEventListener("pointerdown",function(e){
 window.addEventListener("resize",fitCanvas);
 
 // toolbar
-$("bPlay").onclick=function(){ setStream(!streaming); };
 $("bShot").onclick=snapPng;
 $("bFfc").onclick=function(){ send("run_ffc"); toast("Flat field correction requested"); };
 /* Fullscreen, video-player style: enter fullscreen AND lock the display to
@@ -1287,10 +1288,12 @@ $("applyCam").onclick=function(){
   toast("Sensor settings applied","ok");
 };
 $("ffcBtn").onclick=$("bFfc").onclick;
-$("parkBtn").onclick=function(){
+function parkShutter(){
   send("set_shutter",{park:1});
   toast("Shutter parked \u2014 image goes flat. Safe to unplug; FFC reopens it.","ok");
-};
+}
+$("parkBtn").onclick=parkShutter;
+$("bPark").onclick=parkShutter;
 
 // network tab
 $("scanBtn").onclick=function(){
@@ -1683,7 +1686,6 @@ $("isoT").value=store.get("isot","");
 // keyboard shortcuts
 document.addEventListener("keydown",function(e){
   if(e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
-  if(e.code==="Space"){ e.preventDefault(); setStream(!streaming); }
   else if(e.key==="s"||e.key==="S") snapPng();
   else if(e.key==="r"||e.key==="R") $("bRec").click();
   else if(e.key==="f"||e.key==="F") $("bFull").click();
@@ -1865,6 +1867,25 @@ try{
   // Secondary comforts failing must never look like the camera failing
   toast("Some page features unavailable here: "+e.message,"err");
 }
+
+/* ==================== install nudge ==================== */
+// One gentle ask, on phones only, never in the installed app, remembered once
+// dismissed.  Install goes through the same path as the settings button.
+try{
+  var standalone=window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+  var mobile=/Android|iPhone|iPad|iPod/.test(navigator.userAgent);
+  if(mobile && !standalone && store.get("noInstallAsk","")!=="1"){
+    setTimeout(function(){
+      var bar=document.createElement("div");
+      bar.id="askBar";
+      bar.innerHTML='<span style="flex:1">Install this camera as an app?</span>'+
+                    '<button class="go">Install</button><button class="x">Not now</button>';
+      document.body.appendChild(bar);
+      bar.querySelector(".go").onclick=function(){ bar.remove(); $("installBtn").onclick(); };
+      bar.querySelector(".x").onclick=function(){ store.set("noInstallAsk","1"); bar.remove(); };
+    },4000);
+  }
+}catch(e){}
 
 /* ==================== captive-portal escape ==================== */
 // Android's "sign in to network" window is a restricted WebView (its user agent

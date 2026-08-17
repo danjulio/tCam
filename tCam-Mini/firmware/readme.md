@@ -22,6 +22,28 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.3
+FW revision 6.3 recalibrates more aggressively against self-heating, and
+reworks the mobile toolbar.
+
+1. The automatic flat-field-correction cadence is tightened: an FFC every 120
+seconds or 1.5 degC of FPA drift, from FLIR's defaults of 180 s / 3.0 degC.
+The defaults assume FLIR's reference thermal design; mounted over a busy WiFi
+SoC the housing warms continuously, and the drift between corrections was
+large enough that the warm corners could capture the Max reading - a
+measurement problem, not just a cosmetic one.  Halving both bounds keeps the
+residual gradient a fraction of what it was, at the cost of hearing the
+shutter a little more often.  The change is a read-modify-write of the
+Lepton's FFC policy object and refuses to write if the read-back does not
+match the documented layout.
+2. Mobile toolbar: every action button is now visible on a phone (previously
+FFC was hidden and the bar could overflow); the pause/play button is gone
+everywhere - the stream is simply on while a viewer is connected - and the
+shutter park control sits in the toolbar next to FFC rather than only in
+settings.
+3. On phones, when the page is not running as the installed app, a one-time
+banner offers to install it; "Not now" is remembered and it never asks again.
+
 #### FW 6.2
 FW revision 6.2 parks the shutter over the idle detector and ranges the display
 like a thermal instrument.

@@ -190,7 +190,10 @@ bool lepton_init()
 		ESP_LOGE(TAG, "Lepton communication failed (%d)", rsp);
   		return false;
 	}
-	
+
+	// Recalibrate more often than the reference-design defaults assume
+	lepton_ffc_cadence();
+
 	return true;
 }
 
@@ -226,6 +229,48 @@ void lepton_agc(bool en)
 void lepton_ffc()
 {
 	cci_run_ffc();
+}
+
+
+/**
+ * Tighten the automatic flat-field-correction cadence.  The Lepton's defaults
+ * (an FFC every 180 s or 3 degC of FPA drift) are tuned for FLIR's reference
+ * thermal design; mounted over a busy WiFi SoC the housing warms continuously,
+ * and the drift between corrections shows as a corner gradient bright enough
+ * to capture the Max reading.  Halving both bounds keeps the residual small.
+ * Read-modify-write, and only fields whose read-back matches the documented
+ * defaults' shape are trusted - if the layout looks wrong, change nothing.
+ */
+void lepton_ffc_cadence()
+{
+	uint16_t buf[16];
+	uint32_t mode, period;
+	uint16_t delta;
+
+	cci_get_reg(CCI_CMD_SYS_GET_FFC_SHUTTER_MODE, 16, buf);
+
+	mode   = ((uint32_t) buf[1] << 16) | buf[0];
+	period = ((uint32_t) buf[11] << 16) | buf[10];
+	delta  = buf[14];
+
+	// Expect automatic shutter mode with credible period/delta values;
+	// anything else means the object layout is not what this code believes
+	if ((mode != 1) || (period < 10000) || (period > 600000) ||
+	    (delta < 50) || (delta > 1000)) {
+		ESP_LOGW(TAG, "FFC shutter object unexpected (mode %u, period %u, delta %u) - leaving defaults",
+		         (unsigned) mode, (unsigned) period, (unsigned) delta);
+		return;
+	}
+
+	period = 120000;   // mS between automatic FFCs (default 180000)
+	delta  = 150;      // FPA drift that forces one, x0.01 degC (default 300)
+	buf[10] = (uint16_t) (period & 0xFFFF);
+	buf[11] = (uint16_t) (period >> 16);
+	buf[14] = delta;
+
+	cci_set_reg(CCI_CMD_SYS_SET_FFC_SHUTTER_MODE, 16, buf);
+	ESP_LOGI(TAG, "FFC cadence: every %u s or %.1f degC drift",
+	         (unsigned) (period / 1000), (double) delta / 100.0);
 }
 
 
