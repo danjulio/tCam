@@ -22,6 +22,24 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.11
+FW revision 6.11 fixes video recordings never saving, restores the photo
+button on phones, and adds a vertical flip.
+
+1. Stopping a recording nulled the recorder object before the browser fired
+its stop event; the save handler then read through that null and threw -
+silently, inside an event handler - so the file was never written.  The
+handler now uses the event's own recorder reference, and both start and stop
+show a toast (recordings save as .mp4 or .webm to the device's downloads,
+like photos).
+2. The phone toolbar hid the Save PNG button to save space; there is room, so
+every action button now shows on mobile.  Only the passive fps and status
+texts still yield.
+3. "Flip vertically" joins "Mirror horizontally" in the display settings, for
+cameras mounted upside down.  Both are display-side transforms applied
+consistently to the live view, tap targets, markers, screenshots and
+recordings, and both are remembered per device.
+
 #### FW 6.10
 FW revision 6.10 makes Lepton mode changes verified, and makes the UI honest
 when the sensor is not producing temperatures.

@@ -63,6 +63,8 @@ canvas{display:block;image-rendering:pixelated;border-radius:10px;
        box-shadow:0 0 0 1px var(--line), var(--shadow)}
 canvas.smooth{image-rendering:auto}
 canvas.mirror{transform:scaleX(-1)}
+canvas.flipv{transform:scaleY(-1)}
+canvas.mirror.flipv{transform:scale(-1,-1)}
 #marks{position:absolute;inset:0;pointer-events:none;overflow:visible}
 
 /* ============================== chrome ============================== */
@@ -217,8 +219,8 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
   .chip span{font-size:14px}
   .chip{padding:6px 10px}
   /* compact top bar: sized for a ~412 CSS px phone in portrait.  Every ACTION
-     stays reachable - only passive text yields.  Save PNG lives in the panel. */
-  #fps,#bShot,#substate{display:none}
+     stays reachable - only passive text (fps readout, status line) yields. */
+  #fps,#substate{display:none}
   #netinfo .sep,#netinfo .usericon,#cliTxt,#sigTxt{display:none}
   #topbar{top:8px;left:8px;right:8px;gap:4px;padding:6px 6px 6px 10px}
   #idblock{min-width:0;flex:0 1 auto}
@@ -349,6 +351,7 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
     </div>
     <label class="chk"><input type="checkbox" id="oSmooth"><span>Smooth display scaling</span></label>
     <label class="chk"><input type="checkbox" id="oMirror"><span>Mirror horizontally</span></label>
+    <label class="chk"><input type="checkbox" id="oFlip"><span>Flip vertically</span></label>
 
     <div class="sect">Temperature range</div>
     <label class="chk"><input type="checkbox" id="auto" checked><span>Auto range</span></label>
@@ -834,7 +837,8 @@ function sensorToScreen(x,y){
   // sensor px -> css px inside the marks svg
   var r=cv.getBoundingClientRect();
   var mx=$("oMirror").checked ? (W-1-x) : x;
-  return {x:(mx+0.5)*r.width/W, y:(y+0.5)*r.height/H};
+  var my=$("oFlip").checked   ? (H-1-y) : y;
+  return {x:(mx+0.5)*r.width/W, y:(my+0.5)*r.height/H};
 }
 
 function drawMarks(){
@@ -1164,6 +1168,13 @@ $("oMirror").onchange=function(){
 };
 $("oMirror").checked=store.get("mirror","")==="1";
 cv.classList.toggle("mirror",$("oMirror").checked);
+$("oFlip").onchange=function(){
+  store.set("flipv",this.checked?"1":"");
+  cv.classList.toggle("flipv",this.checked);
+  drawMarks();
+};
+$("oFlip").checked=store.get("flipv","")==="1";
+cv.classList.toggle("flipv",$("oFlip").checked);
 $("oSmooth").onchange=function(){
   store.set("smooth",this.checked?"1":"");
   cv.classList.toggle("smooth",this.checked);
@@ -1178,6 +1189,7 @@ $("canwrap").addEventListener("pointerdown",function(e){
   var x=Math.floor((e.clientX-r.left)/r.width*W);
   var y=Math.floor((e.clientY-r.top)/r.height*H);
   if($("oMirror").checked) x=W-1-x;
+  if($("oFlip").checked)   y=H-1-y;
   x=Math.max(0,Math.min(W-1,x)); y=Math.max(0,Math.min(H-1,y));
 
   if(cursorMode==="spot"){
@@ -1497,6 +1509,7 @@ function compositeFrame(){
   compG.imageSmoothingEnabled=$("oSmooth").checked;
   compG.save();
   if($("oMirror").checked){ compG.translate(w,0); compG.scale(-1,1); }
+  if($("oFlip").checked)  { compG.translate(0,h); compG.scale(1,-1); }
   compG.drawImage(cv,0,0,w,h);
   compG.restore();
   if(overlayOn()) drawOverlayData(compG,w,h);
@@ -1554,9 +1567,9 @@ function drawOverlayData(g,w,h){
   }
 
   // markers, in sensor coordinates scaled to the capture
-  var fx=w/W, fy2=h/H, mir=$("oMirror").checked;
+  var fx=w/W, fy2=h/H, mir=$("oMirror").checked, flip=$("oFlip").checked;
   function mx(px){ return ((mir?(W-1-px):px)+0.5)*fx; }
-  function my(py){ return (py+0.5)*fy2; }
+  function my(py){ return ((flip?(H-1-py):py)+0.5)*fy2; }
   g.lineWidth=Math.max(1.5,f/9); g.textBaseline="top";
   if($("oSpot").checked){
     var cx=mx(spotPos.x), cy=my(spotPos.y), r=f*0.7;
@@ -1629,17 +1642,22 @@ function startRec(){
   recChunks=[];
   recorder.ondataavailable=function(e){ if(e.data && e.data.size) recChunks.push(e.data); };
   recorder.onstop=function(){
-    var type=recorder.mimeType||mime||"video/webm";
+    // `this` is the MediaRecorder.  The global is already nulled by stopRec()
+    // when this event fires, and reading through the global here threw -
+    // silently, inside an event handler - so recordings were never saved.
+    var type=this.mimeType||mime||"video/webm";
     var ext=type.indexOf("mp4")>=0?"mp4":"webm";
-    dl(new Blob(recChunks,{type:type}),"tcam-"+stamp()+"."+ext);
+    var name="tcam-"+stamp()+"."+ext;
+    dl(new Blob(recChunks,{type:type}),name);
     recChunks=[];
+    toast("Saved "+name+" to this device's downloads","ok");
   };
   recorder.start(1000);
   recStart=Date.now();
   document.body.classList.add("rec");
   recTimerH=setInterval(recTick,500);
   recTick();
-  toast("Recording — overlay "+(overlayOn()?"on":"off"),"ok");
+  toast("Recording (overlay "+(overlayOn()?"on":"off")+") — tap the record button again to stop and save","ok");
 }
 
 function stopRec(){
