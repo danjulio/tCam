@@ -2,3 +2,5 @@ tCam/firmware/build/
 tCam-Mini/firmware/build/
 python/examples/__pycache__
 python/palettes/__pycache__
+tCam-Mini/firmware/dependencies.lock
+tCam-Mini/firmware/sdkconfig.old

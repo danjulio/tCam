@@ -143,7 +143,7 @@ idf.py build
 idf.py -p PORT -b 921600 flash
 ```
 
-Requires ESP-IDF v4.4.4, as before. `CONFIG_HTTPD_WS_SUPPORT` must be enabled — it is
+Requires ESP-IDF v5.5. `CONFIG_HTTPD_WS_SUPPORT` must be enabled — it is
 set in the committed `sdkconfig`, but a `sdkconfig` regenerated from defaults will
 silently drop the WebSocket endpoint without it.
 

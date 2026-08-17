@@ -41,7 +41,9 @@
 #include "system_config.h"
 #include "vospi.h"
 #include "mbedtls/base64.h"
+#include "esp_mac.h"
 #include "esp_system.h"
+#include "esp_app_desc.h"
 #include "esp_ota_ops.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -268,7 +270,7 @@ char* json_get_status(uint32_t* len)
 	tmElements_t te;
 	
 	// Get system information
-	app_desc = esp_ota_get_app_description();	
+	app_desc = esp_app_get_description();	
 	time_get(&te);
 	
 	// Create and add to the metadata object
@@ -1167,7 +1169,7 @@ static bool json_add_metadata_object(cJSON* parent)
 	
 	// Get system information
 	ctrl_get_if_mode(&brd_type, &if_type);
-	app_desc = esp_ota_get_app_description();
+	app_desc = esp_app_get_description();
 	time_get(&te);
 	
 	// Create and add to the metadata object

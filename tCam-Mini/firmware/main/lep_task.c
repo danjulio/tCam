@@ -27,6 +27,7 @@
 #include "ctrl_task.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -71,7 +72,7 @@ static TaskHandle_t lep_task_handle = NULL;
 //
 // LEP Task Forward Declarations for internal functions
 //
-static void IRAM_ATTR vsync_isr(void* arg);
+static void vsync_isr(void* arg);
 static bool wait_for_vsync();
 
 

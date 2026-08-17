@@ -30,6 +30,16 @@
 
 
 //
+// Time Utilities constants
+//
+
+// Size a buffer passed to time_get_disp_string() must have, including the null.
+// "DOW MON DD HH:MM:SS YYYY" needs 25; the rest is headroom for a clock that has
+// come back from the RTC holding nonsense.
+#define TIME_DISP_STRING_LEN 32
+
+
+//
 // Time Utilities API
 //
 void time_init();

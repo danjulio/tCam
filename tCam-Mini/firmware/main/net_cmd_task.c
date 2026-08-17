@@ -32,6 +32,7 @@
 #include "system_config.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_app_desc.h"
 #include "esp_ota_ops.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -258,7 +259,7 @@ static void net_cmd_start_mdns()
 	}
 	
 	// Get dynamic info for TXT records
-	app_desc = esp_ota_get_app_description();  // Get version info
+	app_desc = esp_app_get_description();  // Get version info
 	ctrl_get_if_mode(&brd_type, &if_type);
 	model_type[0] = '0' + ((brd_type == CTRL_BRD_ETH_TYPE) ? CAMERA_MODEL_NUM_ETH : CAMERA_MODEL_NUM_WIFI);
 	model_type[1] = 0;

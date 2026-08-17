@@ -28,6 +28,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdbool.h>
+#include <inttypes.h>
 #include <stdint.h>
 
 
@@ -116,7 +117,7 @@ static void print_memory_stats()
 	heap_caps_print_heap_info(MALLOC_CAP_INTERNAL);
 	heap_caps_print_heap_info(MALLOC_CAP_SPIRAM);
 #else
-	ESP_LOGI(TAG, "Int Heap free: %d / Min: %d - SPIRAM free: %d / Min %d", 
+	ESP_LOGI(TAG, "Int Heap free: %zu / Min: %zu - SPIRAM free: %zu / Min %zu",
 	        heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
 	        heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
 	        heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
@@ -163,10 +164,10 @@ static void print_task_stats()
         	if (k >= 0) {
             	task_elapsed_time = end_task_sample_array[k].ulRunTimeCounter - start_task_sample_array[i].ulRunTimeCounter;
             	percentage_time = (task_elapsed_time * 100UL) / (total_elapsed_time * portNUM_PROCESSORS);
-            	printf("\t%16s\t%d\t%d%%\t%d\t%d\n", start_task_sample_array[i].pcTaskName,
+            	printf("\t%16s\t%"PRIu32"\t%"PRIu32"%%\t%d\t%d\n", start_task_sample_array[i].pcTaskName,
             	       task_elapsed_time, percentage_time,
-            	       start_task_sample_array[i].uxCurrentPriority,
-            	       start_task_sample_array[i].usStackHighWaterMark);
+            	       (int) start_task_sample_array[i].uxCurrentPriority,
+            	       (int) start_task_sample_array[i].usStackHighWaterMark);
         	}
     	}
     

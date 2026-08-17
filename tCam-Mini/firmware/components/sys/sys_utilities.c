@@ -101,8 +101,8 @@ static spi_slave_transaction_t spi_slave_t;
 // Forward declarations for internal functions
 //
 static esp_err_t _sys_spi_slave_init();
-static void IRAM_ATTR _sys_spi_slave_post_setup_cb();
-static void IRAM_ATTR _sys_spi_slave_post_trans_cb();
+static void _sys_spi_slave_post_setup_cb();
+static void _sys_spi_slave_post_trans_cb();
 
 
 //

@@ -24,6 +24,7 @@
 #include "cert_utilities.h"
 #include "ps_utilities.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -114,6 +115,7 @@ static bool cert_generate();
 static bool cert_store_to_nvs();
 static bool cert_verify();
 static int build_san(unsigned char* out, size_t out_len);
+static int cert_rng(void* ctx, unsigned char* buf, size_t len);
 
 
 //
@@ -267,7 +269,6 @@ static bool cert_generate()
 	int ret;
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_entropy_context entropy;
-	mbedtls_mpi serial;
 	mbedtls_pk_context key;
 	mbedtls_x509write_cert crt;
 	unsigned char serial_bytes[16];
@@ -280,7 +281,6 @@ static bool cert_generate()
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	mbedtls_pk_init(&key);
 	mbedtls_x509write_crt_init(&crt);
-	mbedtls_mpi_init(&serial);
 
 	cert_buf = malloc(CERT_PEM_MAX_LEN);
 	key_buf = malloc(KEY_PEM_MAX_LEN);
@@ -301,18 +301,19 @@ static bool cert_generate()
 	                          mbedtls_ctr_drbg_random, &ctr_drbg);
 	if (ret != 0) { ESP_LOGE(TAG, "key generation failed (-0x%04x)", -ret); goto done; }
 
-	// Random positive serial number
+	// Random positive serial number.  The top bit is cleared so the DER INTEGER
+	// is not read as negative, and the low bit set so the leading byte is never
+	// zero (a leading zero byte is not valid DER here).
 	esp_fill_random(serial_bytes, sizeof(serial_bytes));
-	serial_bytes[0] &= 0x7F;
-	ret = mbedtls_mpi_read_binary(&serial, serial_bytes, sizeof(serial_bytes));
-	if (ret != 0) { ESP_LOGE(TAG, "serial failed (-0x%04x)", -ret); goto done; }
+	serial_bytes[0] = (serial_bytes[0] & 0x7F) | 0x01;
 
 	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
 	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
 	mbedtls_x509write_crt_set_subject_key(&crt, &key);
 	mbedtls_x509write_crt_set_issuer_key(&crt, &key);
 
-	ret = mbedtls_x509write_crt_set_serial(&crt, &serial);
+	// mbedTLS 3 deprecated the mpi-based setter in favour of raw serial bytes
+	ret = mbedtls_x509write_crt_set_serial_raw(&crt, serial_bytes, sizeof(serial_bytes));
 	if (ret != 0) { ESP_LOGE(TAG, "set serial failed (-0x%04x)", -ret); goto done; }
 
 	snprintf(subject, sizeof(subject), "CN=%s,O=tCam", cert_host);
@@ -370,7 +371,6 @@ done:
 		free(cert_buf); cert_buf = NULL;
 		free(key_buf);  key_buf = NULL;
 	}
-	mbedtls_mpi_free(&serial);
 	mbedtls_x509write_crt_free(&crt);
 	mbedtls_pk_free(&key);
 	mbedtls_ctr_drbg_free(&ctr_drbg);
@@ -456,6 +456,19 @@ static int build_san(unsigned char* out, size_t out_len)
 
 
 /**
+ * mbedTLS-shaped wrapper over the chip's hardware random number generator, for
+ * the call sites that need an RNG but not a full entropy/DRBG pair of their own.
+ */
+static int cert_rng(void* ctx, unsigned char* buf, size_t len)
+{
+	(void) ctx;
+
+	esp_fill_random(buf, len);
+	return 0;
+}
+
+
+/**
  * Parse the certificate and key back and confirm they are usable as a TLS server
  * identity.  This is cheap insurance against a silent failure mode: if the stack
  * cannot use the certificate, the only symptom at handshake time is a generic
@@ -477,7 +490,10 @@ static bool cert_verify()
 		goto done;
 	}
 
-	ret = mbedtls_pk_parse_key(&pk, key_buf, key_buf_len, NULL, 0);
+	// mbedTLS 3 requires an RNG here (it blinds the key operations).  The chip's
+	// hardware generator is used directly rather than standing up an entropy and
+	// DRBG pair, which would cost more stack than this function has to spare.
+	ret = mbedtls_pk_parse_key(&pk, key_buf, key_buf_len, NULL, 0, cert_rng, NULL);
 	if (ret != 0) {
 		ESP_LOGE(TAG, "private key does not parse (-0x%04x)", -ret);
 		goto done;
@@ -489,9 +505,10 @@ static bool cert_verify()
 		goto done;
 	}
 
-	if (mbedtls_pk_ec(crt.pk)->grp.id != MBEDTLS_ECP_DP_SECP256R1) {
+	// The keypair's group is private in mbedTLS 3; ask for it through the accessor
+	if (mbedtls_ecp_keypair_get_group_id(mbedtls_pk_ec(crt.pk)) != MBEDTLS_ECP_DP_SECP256R1) {
 		ESP_LOGE(TAG, "certificate is on curve %d, not secp256r1",
-		         (int) mbedtls_pk_ec(crt.pk)->grp.id);
+		         (int) mbedtls_ecp_keypair_get_group_id(mbedtls_pk_ec(crt.pk)));
 		goto done;
 	}
 

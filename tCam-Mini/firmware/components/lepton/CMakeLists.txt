@@ -2,5 +2,4 @@ file(GLOB SOURCES *.c)
 
 idf_component_register(SRCS ${SOURCES}
                        INCLUDE_DIRS . ../../main
-                       REQUIRES i2c sys)
-
+                       REQUIRES i2c sys driver esp_timer)

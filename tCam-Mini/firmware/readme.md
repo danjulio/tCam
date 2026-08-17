@@ -1,5 +1,5 @@
 ## tCam-Mini Firmware
-tCam-Mini (tCam-POE) firmware is an Espressif IDF project.  You need to have the Espressif v4.4.4 IDF installed to build the firmware.  Pre-compiled binary files are provided (```precompiled``` directory here) and can be programmed using the IDF tools or a Windows utility as described in the ```programming``` directory elsewhere in this repostitory.
+tCam-Mini (tCam-POE) firmware is an Espressif IDF project.  You need to have the Espressif v5.5 IDF installed to build the firmware.  Pre-compiled binary files are provided (```precompiled``` directory here) and can be programmed using the IDF tools or a Windows utility as described in the ```programming``` directory elsewhere in this repostitory.
 
 ### On-camera web interface
 The camera serves its own browser-based user interface, so a viewer and full configuration are available without installing the desktop or mobile application.  Join the camera's WiFi network and the interface appears by itself, or browse to ```http://<camera-name>.local``` when the camera is on your network.  See [WEB_UI.md](WEB_UI.md) for details.  The existing json command protocol on port 5001 is unchanged and all existing clients continue to work.
@@ -21,6 +21,44 @@ To load the project onto tCam-Mini or tCam-POE:
 To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Output is at 115200 baud.  Note the command will reboot the camera.
 
 ### Revision History
+
+#### FW 5.0
+FW revision 5.0 moves the firmware from ESP-IDF v4.4.4 to v5.5.
+
+1. v4.4.4 was the last release of the v4 line, reached end of life in 2024, and
+has since been withdrawn from Espressif's download page - so the firmware could
+no longer be built with a toolchain anyone could obtain, and the WiFi and TLS
+stacks it shipped were receiving no fixes.  The build now targets v5.5.
+2. `mdns` left the IDF after v4.4 and now lives in the component registry.  It is
+vendored into `components/mdns` (release 1.9.1) rather than fetched at build
+time, so a build needs no network access and cannot break when a remote version
+moves.  Camera discovery and `<name>.local` are unchanged.
+3. mbedTLS moved from 2.28 to 3.6, which made key structures private and changed
+several signatures.  Certificate generation and verification were updated for
+it: raw serial numbers instead of the deprecated mpi setter, the accessor for a
+keypair's curve, and an RNG passed to key parsing (the hardware generator is
+used directly rather than standing up a second entropy pool).  The certificate
+produced is the same EC P-256, and stored certificates survive the upgrade.
+4. `httpd_ssl_config_t.cacert_pem` no longer doubles as the server's own
+certificate - in v5 that field means the CA used to verify client certificates.
+The server identity is now set through `servercert`, which is the actual fix for
+a field whose meaning silently changed.
+5. Ethernet MAC configuration, several headers split out of `esp_system.h`
+(`esp_mac.h`, `esp_random.h`, `esp_app_desc.h`, `esp_timer.h`), the removal of
+the socket API from `esp_http_server.h`, and the `portTICK_RATE_MS` macro were
+all updated for v5.
+6. Configuration is now generated from `sdkconfig.defaults`, which records every
+deliberate deviation from the IDF defaults and the reason for it, so the next
+IDF upgrade is a review of one annotated file rather than a diff of a thousand
+generated lines.
+7. Two latent defects surfaced by the newer compiler are fixed: a display time
+string built with an unbounded `sprintf` into a 26 byte buffer, which an RTC
+holding an out-of-range date could overrun, and `IRAM_ATTR` applied twice to the
+Lepton vsync ISR and the SPI slave callbacks, where the second placement was
+being discarded.
+
+Behaviour is unchanged - this release is the platform move, not a feature
+release.
 
 #### FW 4.7
 FW revision 4.7 fixes peer attribution: with IPv6 enabled the server listens on

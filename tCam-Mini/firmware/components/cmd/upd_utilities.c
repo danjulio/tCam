@@ -24,6 +24,7 @@
  */
 #include "upd_utilities.h"
 #include "esp_system.h"
+#include "esp_app_desc.h"
 #include "esp_ota_ops.h"
 #include "esp_app_format.h"
 #include "esp_log.h"
@@ -129,7 +130,7 @@ bool upd_process_bytes(uint32_t start, uint32_t len, uint8_t* buf)
 		const esp_app_desc_t* cur_app_infoP;
 		esp_app_desc_t new_app_info;
 		
-		cur_app_infoP = esp_ota_get_app_description();
+		cur_app_infoP = esp_app_get_description();
 		
 		if (len > sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t)) {
 			memcpy(&new_app_info, &buf[sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t)], sizeof(esp_app_desc_t));

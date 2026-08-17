@@ -39,9 +39,14 @@
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_https_server.h"
+#include "esp_app_desc.h"
 #include "esp_ota_ops.h"
 #include "esp_wifi.h"
 #include "mdns.h"
+// IDF 5's esp_http_server.h no longer drags the socket API in behind it, and
+// peer_str() below works directly on the session's socket
+#include "lwip/inet.h"
+#include "lwip/sockets.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -314,9 +319,11 @@ static void start_https_server()
 		return;
 	}
 
-	// In IDF 4.4 cacert_pem doubles as the server certificate
-	conf.cacert_pem = cert_pem;
-	conf.cacert_len = cert_len;
+	// servercert is the server's own identity.  cacert_pem is left unset - in IDF
+	// 5 it means the CA used to verify *client* certificates, which this server
+	// does not ask for.
+	conf.servercert = cert_pem;
+	conf.servercert_len = cert_len;
 	conf.prvtkey_pem = key_pem;
 	conf.prvtkey_len = key_len;
 
@@ -444,7 +451,7 @@ static esp_err_t status_get_handler(httpd_req_t* req)
 	net_info_t* net_infoP;
 	static const char* session_names[] = { "none", "tcp", "web" };
 
-	app_desc = esp_ota_get_app_description();
+	app_desc = esp_app_get_description();
 	net_infoP = (*net_get_info)();
 	ctrl_get_if_mode(&brd_type, &if_type);
 

@@ -1,0 +1,62 @@
+# tCam-Mini project configuration.
+#
+# Every setting here is a deliberate deviation from the ESP-IDF defaults, with
+# the reason recorded next to it.  sdkconfig itself is generated from this file
+# and can be deleted and rebuilt at any time; when moving to a new IDF release,
+# this is the file to review.
+
+# Target and board.  tCam-Mini is an ESP32-WROVER-E (revision 3) with 8 MB of
+# flash and a custom partition table carrying two OTA slots.
+CONFIG_IDF_TARGET="esp32"
+CONFIG_ESP32_REV_MIN_3=y
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Full clock and optimize for speed: the VoSPI transfer from the Lepton is
+# hard real time and frame assembly has to keep up with the sensor.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# PSRAM.  The WROVER-E carries 4 MB.  40 MHz, not 80 - the faster setting was
+# tried and reverted (see FW 4.2): it is a speculative gain, and every mbedTLS
+# allocation lives in PSRAM, so marginal timing there corrupts crypto state.
+# ALWAYSINTERNAL and RESERVE_INTERNAL keep small allocations and a reserve in
+# internal RAM, which is the scarce pool - task stacks and socket buffers
+# cannot come from PSRAM.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_40M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+
+# Move mbedTLS working memory (and the WPA3 supplicant's) out to PSRAM.  Without
+# this the TLS server and the WiFi stack compete for internal RAM and the HTTPS
+# instance fails to start with ESP_ERR_HTTPD_TASK.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+
+# Web server.  Two httpd instances (HTTP and HTTPS) plus the json command
+# listener on port 5001 share the socket pool, so it is raised from the default.
+# The window and send buffer are enlarged because image frames are pushed
+# continuously over a WebSocket.
+CONFIG_LWIP_MAX_SOCKETS=16
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=11488
+CONFIG_LWIP_TCP_WND_DEFAULT=11488
+
+# WebSocket support is what carries the image stream to the browser.  The header
+# allowance is raised because browsers send long cookie and client-hint headers
+# and the default 512 bytes produced spurious 431 responses.
+CONFIG_HTTPD_WS_SUPPORT=y
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
+CONFIG_HTTPD_MAX_URI_LEN=512
+CONFIG_HTTPD_ERR_RESP_NO_DELAY=y
+CONFIG_ESP_HTTPS_SERVER_ENABLE=y
+
+# Task watchdog on both idle tasks - a starved core is a bug worth a reset
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
+
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=3584

@@ -35,7 +35,6 @@ endif()
 
 idf_component_register(SRCS ${SOURCES}
                     INCLUDE_DIRS .
-                    REQUIRES clock cmd i2c lepton sys app_update esp_http_server esp_https_server mbedtls nvs_flash mdns
+                    REQUIRES clock cmd i2c lepton sys app_update esp_http_server esp_https_server
+                             esp_wifi esp_netif esp_timer mbedtls nvs_flash mdns driver
                     EMBED_FILES "www/index.html.gz" "www/icon-192.png" "www/icon-512.png")
-
-target_compile_definitions(${COMPONENT_LIB} PRIVATE LV_CONF_INCLUDE_SIMPLE=1)
