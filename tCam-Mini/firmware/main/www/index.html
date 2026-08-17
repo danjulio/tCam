@@ -240,12 +240,6 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
 #logBox{max-height:280px;overflow:auto;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;
   background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:10px;padding:10px;
   white-space:pre-wrap;word-break:break-all;margin:0 0 6px 0}
-#askBar{position:fixed;bottom:0;left:0;right:0;z-index:99;display:flex;align-items:center;
-  gap:10px;padding:12px 14px;background:var(--panel,#12161d);color:var(--fg,#eef2f7);
-  border-top:1px solid var(--line);font-size:13px;font-weight:600}
-#askBar button{border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer}
-#askBar .go{background:var(--accent);color:#0b0e13}
-#askBar .x{background:transparent;color:var(--dim)}
 #escBar{position:fixed;top:0;left:0;right:0;z-index:99;display:flex;align-items:center;
   gap:10px;padding:10px 14px;background:var(--accent);color:#0b0e13;font-size:13px;font-weight:600}
 #escBar button{border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}
@@ -488,11 +482,6 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
       contacted until you press the button, so it costs the live stream nothing.
       Selecting a camera opens its interface.</div>
 
-    <div class="sect">Install as an app</div>
-    <div class="row"><button class="btn" id="installBtn">Add to home screen</button></div>
-    <div class="hint stay" id="installHint">Installs a home screen icon that opens this camera
-      directly, without browser chrome.</div>
-
     <div class="sect">Saved networks</div>
     <div class="row" id="savedWrap" style="display:none"><div id="savedNets"></div></div>
     <div class="hint stay" id="savedHint">The camera remembers up to five networks. At power-on it
@@ -519,10 +508,10 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
         <input type="text" id="staip" placeholder="192.168.4.50" autocomplete="off">
         <input type="text" id="stamask" placeholder="255.255.255.0" autocomplete="off">
       </div>
-      <div class="hint">A fixed address is worth setting if you install this app to your home
-        screen: the installed icon opens whatever address it was installed from, so a camera
-        whose address moves has to be found again. Pick something outside your router's DHCP
-        pool. (A DHCP reservation in the router achieves the same thing.)</div>
+      <div class="hint">A fixed address keeps bookmarks and home-screen shortcuts working —
+        they open whatever address they were saved from, so a camera whose address moves has
+        to be found again. Pick something outside your router's DHCP pool. (A DHCP
+        reservation in the router achieves the same thing.)</div>
     </div>
 
     <div class="row" style="margin-top:12px">
@@ -1374,38 +1363,10 @@ $("findBtn").onclick=function(){
   .then(function(){ b.disabled=false; b.textContent="Find other cameras"; });
 };
 
-// Chrome fires this only when it considers the app installable, which requires
-// an https origin the browser already trusts; the camera serves plain http (so
-// the video stream stays smooth), so the button falls back to telling the user
-// where the browser's own menu item is.
-var deferredInstall=null;
-window.addEventListener("beforeinstallprompt",function(e){
-  e.preventDefault();
-  deferredInstall=e;
-  $("installBtn").textContent="Install app";
-  $("installHint").textContent="Installs a home screen icon that opens this camera directly, without browser chrome.";
-});
-
-$("installBtn").onclick=function(){
-  if(deferredInstall){
-    deferredInstall.prompt();
-    deferredInstall=null;
-    return;
-  }
-  var ios=/iPad|iPhone|iPod/.test(navigator.userAgent);
-  $("installHint").innerHTML = ios
-    ? "In Safari, tap the <b>Share</b> button then <b>Add to Home Screen</b>. The icon opens this camera full screen."
-    : "Open your browser's <b>⋮ menu</b> and choose <b>Add to Home screen</b>. "+
-      "(Chrome reserves its one-tap install for https sites, and the camera serves "+
-      "plain http so the video stream stays smooth — the menu item does the same job.)";
-  toast("See the note below the button","ok");
-};
-
-if(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches){
-  $("installBtn").disabled=true;
-  $("installBtn").textContent="Installed";
-  $("installHint").textContent="Running as an installed app.";
-}
+// No install button or prompt: Chrome reserves its one-tap install for https
+// origins it already trusts, and the camera deliberately serves plain http
+// (see FW 6.9).  The manifest and icons remain, so "Add to Home screen" in
+// the browser's own menu still yields a chrome-free app icon.
 
 $("staticEn").onchange=function(){
   $("staticBox").style.display=this.checked?"block":"none";
@@ -1904,25 +1865,6 @@ $("logBtn").onclick=function(){
 // Clip preference survives reloads
 $("clipEn").checked = store.get("clip","1")==="1";
 $("clipEn").onchange = function(){ store.set("clip", this.checked?"1":"0"); };
-
-/* ==================== install nudge ==================== */
-// One gentle ask, on phones only, never in the installed app, remembered once
-// dismissed.  Install goes through the same path as the settings button.
-try{
-  var standalone=window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
-  var mobile=/Android|iPhone|iPad|iPod/.test(navigator.userAgent);
-  if(mobile && !standalone && store.get("noInstallAsk","")!=="1"){
-    setTimeout(function(){
-      var bar=document.createElement("div");
-      bar.id="askBar";
-      bar.innerHTML='<span style="flex:1">Install this camera as an app?</span>'+
-                    '<button class="go">Install</button><button class="x">Not now</button>';
-      document.body.appendChild(bar);
-      bar.querySelector(".go").onclick=function(){ bar.remove(); $("installBtn").onclick(); };
-      bar.querySelector(".x").onclick=function(){ store.set("noInstallAsk","1"); bar.remove(); };
-    },4000);
-  }
-}catch(e){}
 
 /* ==================== captive-portal escape ==================== */
 // Android's "sign in to network" window is a restricted WebView (its user agent

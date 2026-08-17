@@ -22,6 +22,17 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.14
+FW revision 6.14 removes the "Install as an app" button and prompt.
+
+1. Browsers reserve one-tap app installation for trusted https origins, and
+this camera deliberately serves plain http (see FW 6.9), so the button could
+never do more than point at the browser's own menu.  A control that cannot do
+what it offers is clutter: the Network-tab section and the phone install
+prompt are gone.  The web app manifest and icons remain, so "Add to Home
+screen" in the browser menu still produces a chrome-free app icon; the fixed-
+address hint now speaks of bookmarks and home-screen shortcuts instead.
+
 #### FW 6.13
 FW revision 6.13 tightens the settings panel into an instrument-dense layout
 with help on demand.
