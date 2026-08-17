@@ -1776,24 +1776,36 @@ document.addEventListener("visibilitychange",wakeOn);
 document.addEventListener("pointerdown",wakeOn);
 
 /* ============================== boot ============================== */
-// WebSocket keepalive: with the stream paused nothing flows on the socket, and
-// the camera's connection manager treats a silent socket as evictable when the
-// browser opens new HTTP connections.  A tiny periodic command keeps it marked
-// active (and refreshes the System tab for free).
-setInterval(function(){ if(wsOK && !streaming) send("get_status"); },25000);
-
-wakeOn();
-pollStatus();
-// Cheap: a few hundred bytes every five seconds, next to 53 KB image frames
-setInterval(pollStatus,5000);
-
-if(location.protocol==="http:"){
-  $("tlsLinkRow").style.display="block";
-  $("tlsGo").onclick=function(){ location.href="https://"+location.hostname+"/"; };
-}
-
-setScale(scaleS);
+// The video connection dials FIRST.  It used to be the last line of boot, so
+// anything above it that threw in a restricted browser context (captive-portal
+// windows, older WebViews) silently killed the dial - producing a page where
+// every panel works and the one actual function, the video, never starts.
+// Function declarations hoist, so everything connect() needs already exists.
+$("substate").textContent="connecting…";
 connect();
+
+try{
+  // WebSocket keepalive: with the stream paused nothing flows on the socket, and
+  // the camera's connection manager treats a silent socket as evictable when the
+  // browser opens new HTTP connections.  A tiny periodic command keeps it marked
+  // active (and refreshes the System tab for free).
+  setInterval(function(){ if(wsOK && !streaming) send("get_status"); },25000);
+
+  wakeOn();
+  pollStatus();
+  // Cheap: a few hundred bytes every five seconds, next to 53 KB image frames
+  setInterval(pollStatus,5000);
+
+  if(location.protocol==="http:"){
+    $("tlsLinkRow").style.display="block";
+    $("tlsGo").onclick=function(){ location.href="https://"+location.hostname+"/"; };
+  }
+
+  setScale(scaleS);
+}catch(e){
+  // Secondary comforts failing must never look like the camera failing
+  toast("Some page features unavailable here: "+e.message,"err");
+}
 
 })();
 </script>

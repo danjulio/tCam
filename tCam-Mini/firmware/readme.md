@@ -22,6 +22,29 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 5.5
+FW revision 5.5 dials the video connection before anything else, and clears the
+probe noise out of the AP-mode log.
+
+1. The 5.4 instrumentation showed the WebSocket request never reaching the
+camera at all: the page loads, every panel works, and no `/ws` dial appears on
+the wire.  The dial was the last line of page boot, so any earlier boot step
+throwing in a restricted browser context - captive-portal sign-in windows are
+the prime suspect - silently killed it while leaving the rest of the page
+working.  The connection now dials first, the remaining boot is fenced so no
+secondary feature can take the video down with it, and the status line shows
+"connecting…" from the moment the script starts.
+2. In access point mode the captive portal's DNS answers every hostname, so
+every phone and PC on the AP aims its connectivity and secure-DNS probes at the
+camera's TLS port, rejects the certificate, and produces an error line several
+times a second - a flood that has repeatedly buried the log lines that matter.
+Those probes carry no information in AP mode and are silenced there; station
+mode keeps full TLS error reporting.
+
+Note: the auto-opened "sign in to network" window is a restricted browser.  If
+the video does not start there, open `http://192.168.58.1/` in the real browser
+- the page itself now says exactly what state the video connection is in.
+
 #### FW 5.4
 FW revision 5.4 makes the video pipeline account for itself, stage by stage.
 

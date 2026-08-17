@@ -147,6 +147,21 @@ void web_task()
 		vTaskDelay(pdMS_TO_TICKS(500));
 	}
 
+#ifndef WEB_VERBOSE_NET_LOGS
+	// As an access point with the captive portal's DNS answering every name,
+	// every phone and PC on the AP aims its connectivity and secure-DNS probes at
+	// our port 443, rejects the certificate, and produces a -0x7780 line several
+	// times a second - a flood that has repeatedly buried the log lines that
+	// matter.  That failure mode carries no information here, so silence it in
+	// AP-like modes; in station mode TLS errors stay visible.
+	if (wifi_is_ap_mode() || wifi_is_fallback_active()) {
+		esp_log_level_set("esp-tls-mbedtls", ESP_LOG_NONE);
+		// Each rejected probe also emits httpd's "session creation failed" echo
+		esp_log_level_set("httpd", ESP_LOG_NONE);
+		ESP_LOGI(TAG, "AP mode: suppressing TLS probe noise from portal clients");
+	}
+#endif
+
 	// Internal heap is the scarce resource here - task stacks and socket buffers
 	// must come from it.  Log it so a failure to start leaves a diagnosable trail.
 	ESP_LOGI(TAG, "Internal heap: %d free, largest block %d",
