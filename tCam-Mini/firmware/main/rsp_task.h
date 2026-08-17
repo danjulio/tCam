@@ -44,6 +44,10 @@
 
 // Task evaluation interval
 #define RSP_TASK_EVAL_NORM_MSEC 50
+
+// How long the camera sits with no client before the Lepton's shutter is parked
+// closed over the detector (sun protection for an unattended camera)
+#define RSP_SHUTTER_PARK_IDLE_MSEC 10000
 #define RSP_TASK_EVAL_FAST_MSEC 10
 
 // Maximum send packet size (less than a MTU)

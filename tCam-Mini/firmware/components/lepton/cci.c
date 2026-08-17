@@ -194,6 +194,25 @@ void cci_run_ffc()
 
 
 /**
+ * Hold the shutter in a position, or hand it back to the Lepton's own FFC logic
+ * (CCI_SHUTTER_POS_IDLE).  Holding it closed shields the detector - the one
+ * component the shutter sits in front of - which matters chiefly against the
+ * sun, the only thing that reliably damages a microbolometer through the lens.
+ */
+void cci_set_shutter_position(uint32_t pos)
+{
+	xSemaphoreTake(cci_mutex, portMAX_DELAY);
+	cci_wait_busy_clear();
+	cci_write_register(CCI_REG_DATA_0, pos & 0xffff);
+	cci_write_register(CCI_REG_DATA_1, pos >> 16 & 0xffff);
+	cci_write_register(CCI_REG_DATA_LENGTH, 2);
+	cci_write_register(CCI_REG_COMMAND, CCI_CMD_SYS_SET_SHUTTER_POS);
+	cci_wait_busy_clear_check("CCI_CMD_SYS_SET_SHUTTER_POS");
+	xSemaphoreGive(cci_mutex);
+}
+
+
+/**
  * Get the system uptime.
  */
 uint32_t cci_get_uptime()

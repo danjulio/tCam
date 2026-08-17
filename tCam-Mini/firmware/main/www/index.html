@@ -422,6 +422,12 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
     </div>
     <div class="row">
       <button class="btn" id="ffcBtn">Run flat field correction</button>
+      <button class="btn" id="parkBtn">Park shutter</button>
+      <div class="hint">Parking closes the Lepton's internal shutter over the detector —
+        protection against the sun for a camera left pointing out a window, and a safe
+        state to unplug in. The image goes flat while parked; reconnecting or running
+        FFC reopens it. The camera also parks itself after 10 seconds with no viewer
+        connected.</div>
     </div>
 
     <div class="sect">Telemetry</div>
@@ -593,6 +599,7 @@ var norm8=new Uint8Array(NPIX);
 var scaleS=2, img=null, sx0=null, sx1=null, sfx=null, sy0=null, sy1=null, sfy=null;
 var res=0.01, spotK=null, fpaC=null, houseC=null, effGain=null, emisPct=null;
 var minV=0,maxV=0,minI=0,maxI=0;
+var hist=new Uint32Array(16384);   // 4-count-wide bins over the 16-bit range
 var rangeLo=null, rangeHi=null;
 var probe=null;                       // {x,y} sensor px
 var spotPos={x:79,y:59};              // camera spot ROI top-left (Lepton default is center)
@@ -727,10 +734,23 @@ function render(){
   }
 
   if($("auto").checked || agcOn){
-    if(rangeLo===null){ rangeLo=minV; rangeHi=maxV; }
+    // Range on the 1st-99th percentile instead of the absolute extremes.  A
+    // handful of outlier pixels - one hot reflection, the warm corners the
+    // optics produce as the housing heats between flat-field corrections -
+    // used to own both ends of the palette and flatten everything else.  The
+    // Max/Min readouts still report the true extremes; only the color mapping
+    // clips its tails, which is how purpose-built thermal viewers range.
+    hist.fill(0);
+    for(i=0;i<NPIX;i++) hist[raw[i]>>2]++;
+    var need=NPIX*0.01, acc=0, p1=minV, p99=maxV, b;
+    for(b=minV>>2; b<=maxV>>2; b++){ acc+=hist[b]; if(acc>=need){ p1=b<<2; break; } }
+    acc=0;
+    for(b=maxV>>2; b>=minV>>2; b--){ acc+=hist[b]; if(acc>=need){ p99=(b<<2)+3; break; } }
+    if(p99<=p1){ p1=minV; p99=maxV; }
+    if(rangeLo===null){ rangeLo=p1; rangeHi=p99; }
     else{
-      rangeLo += (minV-rangeLo)*0.2;
-      rangeHi += (maxV-rangeHi)*0.2;
+      rangeLo += (p1-rangeLo)*0.2;
+      rangeHi += (p99-rangeHi)*0.2;
     }
     lo=rangeLo; hi=rangeHi;
   }else{
@@ -1267,6 +1287,10 @@ $("applyCam").onclick=function(){
   toast("Sensor settings applied","ok");
 };
 $("ffcBtn").onclick=$("bFfc").onclick;
+$("parkBtn").onclick=function(){
+  send("set_shutter",{park:1});
+  toast("Shutter parked \u2014 image goes flat. Safe to unplug; FFC reopens it.","ok");
+};
 
 // network tab
 $("scanBtn").onclick=function(){

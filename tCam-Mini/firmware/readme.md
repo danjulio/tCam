@@ -22,6 +22,34 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.2
+FW revision 6.2 parks the shutter over the idle detector and ranges the display
+like a thermal instrument.
+
+1. The Lepton's internal shutter sits between the lens and the detector, and it
+is now used as armor for the one component it can protect.  Ten seconds after
+the last viewer disconnects, the shutter is commanded closed over the detector -
+so a camera left pointing out a window cannot take focused sun on its
+microbolometer, the one thing that reliably damages one through the lens.  A
+newly connecting viewer reopens it, followed automatically by a flat field
+correction so every session starts freshly normalized.  A "Park shutter" button
+on the Camera tab closes it deliberately before unplugging; running FFC reopens
+a parked shutter.  Note the shutter cannot protect the lens itself - it is
+behind the lens; scratches and dust need a cap.  New `set_shutter` json command
+({"park":0|1}).
+2. Display auto-ranging maps the 1st-99th percentile of each frame instead of
+the absolute minimum and maximum.  A handful of outlier pixels - one hot
+reflection, or the warm corners the optics produce as the housing heats between
+flat field corrections - used to own both ends of the palette and flatten the
+rest of the scene, which is also what made mild corner vignetting so loud.  The
+Max/Min readouts still report true extremes; only the color mapping clips its
+tails, which is how purpose-built thermal viewers range.  On the vignetting
+itself: the radiometric data is passed through untouched by this firmware, and
+the corner gradient is the optics' own thermal drift since the last FFC - it
+accumulates as the housing warms.  The park/reopen cycle above means every
+viewing session now begins with a fresh FFC, which is the real mitigation;
+pressing FFC clears it at any time.
+
 #### FW 6.1
 FW revision 6.1 tightens the installed-app experience and adds an escape hatch
 from the captive-portal window.

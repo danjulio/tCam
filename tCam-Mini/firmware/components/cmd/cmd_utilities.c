@@ -71,6 +71,7 @@ static bool process_stream_on(cJSON* cmd_args);
 static bool process_set_time(cJSON* cmd_args);
 static bool process_set_wifi(cJSON* cmd_args);
 static bool process_forget_wifi(cJSON* cmd_args);
+static bool process_set_shutter(cJSON* cmd_args);
 static bool process_get_lep_cci(cJSON* cmd_args);
 static bool process_set_lep_cci(cJSON* cmd_args);
 static bool process_fw_upd_request(cJSON* cmd_args);
@@ -301,8 +302,21 @@ static void process_rx_packet()
 					break;
 				
 				case CMD_RUN_FFC:
-					cci_run_ffc();
+					// A parked shutter means FFC is also the "reopen" gesture
+					if (lepton_shutter_parked()) {
+						lepton_shutter_unpark();   // includes an FFC
+					} else {
+						cci_run_ffc();
+					}
 					cmd_success = 1;
+					break;
+
+				case CMD_SET_SHUTTER:
+					if (process_set_shutter(cmd_args)) {
+						cmd_success = 1;
+					} else {
+						cmd_success = 2;
+					}
 					break;
 
 				case CMD_FORGET_WIFI:
@@ -545,6 +559,24 @@ static bool process_set_wifi(cJSON* cmd_args)
 	}
 
 	return false;
+}
+
+
+static bool process_set_shutter(cJSON* cmd_args)
+{
+	cJSON* item;
+
+	if (cmd_args == NULL) return false;
+
+	item = cJSON_GetObjectItem(cmd_args, "park");
+	if ((item == NULL) || !cJSON_IsNumber(item)) return false;
+
+	if (item->valueint != 0) {
+		lepton_shutter_park();
+	} else {
+		lepton_shutter_unpark();
+	}
+	return true;
 }
 
 

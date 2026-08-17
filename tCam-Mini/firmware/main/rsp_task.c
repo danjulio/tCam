@@ -30,6 +30,7 @@
 #include "lep_task.h"
 #include "rsp_task.h"
 #include "cmd_utilities.h"
+#include "lepton_utilities.h"
 #include "json_utilities.h"
 #include "vospi.h"
 #include "web_cmd.h"
@@ -75,6 +76,8 @@ static const char* TAG = "rsp_task";
 
 // State
 static bool connected;
+static int64_t idle_start_usec = 0;   // when the last client went away (0 = not idle)
+static bool was_connected = false;    // for detecting a newly arrived client
 static bool stream_on;
 static bool image_pending;
 static bool got_image_0, got_image_1;
@@ -170,6 +173,30 @@ void rsp_task()
 				// Clear our state since we are no longer connected
 				init_state();
 			}
+		}
+
+		// Park the shutter over the detector when nobody is watching, so a
+		// camera left on a windowsill cannot take the sun on its sensor; the
+		// next viewer to connect reopens it (with an FFC to re-normalize).
+		// Only a newly arrived viewer unparks: an existing viewer who parked
+		// it deliberately (before unplugging) is left alone - running FFC
+		// also reopens it.  Serial-interface builds have no notion of a
+		// disconnected viewer and are untouched.
+		if (if_type != CTRL_IF_MODE_SIF) {
+			if (connected) {
+				idle_start_usec = 0;
+				if (!was_connected && lepton_shutter_parked()) {
+					lepton_shutter_unpark();
+				}
+			} else if (!lepton_shutter_parked()) {
+				if (idle_start_usec == 0) {
+					idle_start_usec = esp_timer_get_time();
+				} else if ((esp_timer_get_time() - idle_start_usec) >
+				           (RSP_SHUTTER_PARK_IDLE_MSEC * 1000LL)) {
+					lepton_shutter_park();
+				}
+			}
+			was_connected = connected;
 		}
 		
 		// Look for things to send.  A browser on the WebSocket gets the frame as

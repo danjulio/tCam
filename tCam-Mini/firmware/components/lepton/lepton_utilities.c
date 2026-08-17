@@ -45,6 +45,11 @@ static const char* TAG = "lepton_utilities";
 static bool lep_is_radiometric = false;
 static int lep_type;
 
+// True while the shutter is held closed to shield the detector.  The one thing
+// that reliably damages a microbolometer through the lens is the sun, and a
+// parked camera cannot know where it is pointed.
+static bool shutter_parked = false;
+
 
 
 //
@@ -221,6 +226,43 @@ void lepton_agc(bool en)
 void lepton_ffc()
 {
 	cci_run_ffc();
+}
+
+
+/**
+ * Hold the shutter closed to shield the detector while the camera sits unused.
+ * The image goes flat while parked - that is the point.
+ */
+void lepton_shutter_park()
+{
+	if (shutter_parked) return;
+
+	cci_set_shutter_position(CCI_SHUTTER_POS_CLOSED);
+	shutter_parked = true;
+	ESP_LOGI(TAG, "Shutter parked (detector shielded)");
+}
+
+
+/**
+ * Return the shutter to the Lepton's own control and re-normalize.  IDLE, not
+ * OPEN: holding it open would fight the automatic FFC logic, which needs to
+ * close it periodically.  The FFC right after clears any drift accumulated
+ * while parked.
+ */
+void lepton_shutter_unpark()
+{
+	if (!shutter_parked) return;
+
+	cci_set_shutter_position(CCI_SHUTTER_POS_IDLE);
+	shutter_parked = false;
+	cci_run_ffc();
+	ESP_LOGI(TAG, "Shutter unparked, FFC requested");
+}
+
+
+bool lepton_shutter_parked()
+{
+	return shutter_parked;
 }
 
 
