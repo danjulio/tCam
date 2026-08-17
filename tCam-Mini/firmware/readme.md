@@ -22,6 +22,25 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 5.4
+FW revision 5.4 makes the video pipeline account for itself, stage by stage.
+
+The binary WebSocket streaming path shipped in FW 4.1 - after the WebSocket
+endpoint had already silently stopped registering (fixed in 5.1) - so it had
+never once run against a real browser until now.  Every stage now reports in
+the serial log the first time it happens per connection:
+
+1. `ws client N connected from <ip>` - the browser reached the endpoint.
+2. `First command received from ws client N` - commands are flowing inbound.
+3. `Stream on: N mS delay, N frames` - the stream command was parsed and
+   accepted by the response task.
+4. `First image frame sent to ws client N (N bytes)` - a frame actually left
+   the camera.
+
+The browser shows its half: if the socket is open but no frame arrives within
+four seconds, the status line reads "connected — no frames from camera" rather
+than a bare "connected".  Whichever line is missing names the broken stage.
+
 #### FW 5.3
 FW revision 5.3 fixes a crash in the UI and makes an unusable page say why.
 

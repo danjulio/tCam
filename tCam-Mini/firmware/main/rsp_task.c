@@ -417,17 +417,26 @@ static void process_notifications(uint32_t notification_value)
 			cur_stream_frame_delay_usec = next_stream_frame_delay_msec * 1000;
 			cur_stream_frame_num = next_stream_frame_num;
 			stream_remaining_frames = next_stream_frame_num;
-			
+
 			// First image is immediate
 			stream_ready_usec = esp_timer_get_time();
 			image_pending = true;
-			
+
 			// Start streaming
 			stream_on = true;
+
+			// One line per start so the log shows the pipeline stage was reached -
+			// silence here after a browser connects means the command never arrived
+			ESP_LOGI(TAG, "Stream on: %u mS delay, %u frames",
+			         (unsigned) next_stream_frame_delay_msec,
+			         (unsigned) next_stream_frame_num);
 		}
-		
+
 		if (Notification(notification_value, RSP_NOTIFY_CMD_STREAM_OFF_MASK)) {
 			// Stop streaming
+			if (stream_on) {
+				ESP_LOGI(TAG, "Stream off");
+			}
 			stream_on = false;
 		}
 		

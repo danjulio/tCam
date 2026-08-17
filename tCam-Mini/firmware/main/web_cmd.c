@@ -55,6 +55,13 @@ static SemaphoreHandle_t web_mutex = NULL;
 static httpd_handle_t ws_hd = NULL;
 static int ws_fd = -1;
 
+// One announcement per connection when the first image frame actually goes out.
+// The stream failing is otherwise invisible from the camera side: every stage
+// before the socket looks identical whether the browser is rendering frames or
+// showing a black rectangle.
+static bool first_frame_logged = false;
+static bool first_cmd_logged = false;
+
 
 //
 // Web Command forward declarations
@@ -206,6 +213,11 @@ int web_cmd_send_binary(char* buf, int len)
 		return -1;
 	}
 
+	if (!first_frame_logged) {
+		first_frame_logged = true;
+		ESP_LOGI(TAG, "First image frame sent to ws client %d (%d bytes)", fd, len);
+	}
+
 	return len;
 }
 
@@ -238,6 +250,8 @@ static void web_cmd_set_client(httpd_handle_t hd, int fd)
 	xSemaphoreTake(web_mutex, portMAX_DELAY);
 	ws_hd = hd;
 	ws_fd = fd;
+	first_frame_logged = false;
+	first_cmd_logged = false;
 	xSemaphoreGive(web_mutex);
 }
 
@@ -347,6 +361,14 @@ static esp_err_t ws_handler(httpd_req_t* req)
 	if ((frame.type != HTTPD_WS_TYPE_TEXT) || (frame.len == 0)) {
 		// PING/PONG are handled internally by the server
 		return ESP_OK;
+	}
+
+	// One line for the first inbound command, so the log distinguishes "browser
+	// connected but sent nothing" from "commands flowed but streaming never began"
+	if (!first_cmd_logged) {
+		first_cmd_logged = true;
+		ESP_LOGI(TAG, "First command received from ws client %d (%d bytes)",
+		         fd, (int) frame.len);
 	}
 
 	// Re-frame into the sentinel-delimited form the shared parser expects and let

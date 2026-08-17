@@ -924,6 +924,14 @@ function connect(){
     $("substate").textContent="connected";
     send("get_status"); send("get_config"); send("get_wifi");
     setStream(true);
+    // If the link is up but nothing arrives, say which side is silent - this
+    // pairs with the camera's own "First image frame sent" serial log line
+    var f0=frames;
+    setTimeout(function(){
+      if(wsOK && frames===f0){
+        $("substate").textContent="connected — no frames from camera";
+      }
+    },4000);
   };
 
   ws.onmessage=function(ev){
