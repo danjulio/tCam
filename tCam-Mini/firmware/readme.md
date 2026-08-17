@@ -22,6 +22,20 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.7
+FW revision 6.7 stops a second viewer from tearing the stream away from the
+first.
+
+1. The 6.6 claim-on-first-frame let any newly connecting browser silently take
+the command session from whoever held it.  With two tabs or two devices open,
+each steal killed the other viewer's stream, its automatic reconnect stole the
+session back, and the camera ping-ponged between them every few seconds -
+which read as everything being broken while each individual connection was in
+fact working.  A newcomer now probes the current owner first: a live owner
+keeps the session and the newcomer is told "Camera is in use by another
+viewer" (shown as a toast); only a dead owner is displaced.  Closing the
+owning tab frees the camera within moments.
+
 #### FW 6.6
 FW revision 6.6 gives the camera its own certificate authority, unlocking fully
 trusted HTTPS.

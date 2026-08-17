@@ -354,6 +354,52 @@ static esp_err_t ws_handler(httpd_req_t* req)
 	// socket after its first command: the browser showed "connected" (the
 	// handshake IS completed), then lost the link two seconds later, forever.
 	if (fd != ws_fd) {
+		// A newcomer must not tear the session away from a live viewer.  When
+		// claim-on-first-frame simply took over, two open tabs fought forever:
+		// each steal killed the other viewer's stream, its reconnect stole it
+		// back, and neither ever held the camera for more than seconds.  Probe
+		// the current owner; only a dead one is displaced.
+		if (ws_fd >= 0) {
+			esp_err_t alive;
+			httpd_handle_t ohd;
+			int ofd;
+			httpd_ws_frame_t ping;
+
+			memset(&ping, 0, sizeof(ping));
+			ping.type = HTTPD_WS_TYPE_PING;
+			ping.final = true;
+
+			xSemaphoreTake(web_mutex, portMAX_DELAY);
+			ohd = ws_hd;
+			ofd = ws_fd;
+			alive = (ofd >= 0) ? httpd_ws_send_frame_async(ohd, ofd, &ping)
+			                   : ESP_FAIL;
+			xSemaphoreGive(web_mutex);
+
+			if (alive == ESP_OK) {
+				// Owner is live: tell this client why it gets nothing, then
+				// close it.  The UI surfaces cam_info strings as a toast.
+				static const char busy_msg[] =
+					"{\"cam_info\":{\"info_value\":0,"
+					"\"info_string\":\"Camera is in use by another viewer\"}}";
+				httpd_ws_frame_t busy;
+
+				memset(&busy, 0, sizeof(busy));
+				busy.type = HTTPD_WS_TYPE_TEXT;
+				busy.payload = (uint8_t*) busy_msg;
+				busy.len = sizeof(busy_msg) - 1;
+				busy.final = true;
+				(void) httpd_ws_send_frame(req, &busy);
+
+				ESP_LOGW(TAG, "Refusing ws client %d - session held by live client %d",
+				         fd, ofd);
+				return ESP_FAIL;
+			}
+
+			// Owner did not survive the probe - reap it and let this one in
+			ESP_LOGI(TAG, "ws client %d displaced dead client %d", fd, ofd);
+			web_cmd_clear_client();
+		}
 		if (!ws_take_session(req->handle, fd)) {
 			return ESP_FAIL;
 		}
