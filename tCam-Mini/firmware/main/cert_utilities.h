@@ -53,4 +53,13 @@ bool cert_get(const char* host, const unsigned char* ip4,
               const unsigned char** cert_pem, size_t* cert_len,
               const unsigned char** key_pem, size_t* key_len);
 
+/**
+ * Return the camera's CA certificate as PEM (length excludes the terminator -
+ * this is file content).  The CA signs the server certificate above; a device
+ * that installs it into its trust store sees the camera's https as fully
+ * trusted: no warnings, working encrypted video, and a browser willing to
+ * offer real app installation.  Returns false if no CA exists yet.
+ */
+bool cert_get_ca(const unsigned char** pem, size_t* len);
+
 #endif /* CERT_UTILITIES_H */

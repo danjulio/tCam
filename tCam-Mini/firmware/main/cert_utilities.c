@@ -47,6 +47,9 @@
 #define CERT_NVS_NAMESPACE "tcamtls"
 #define CERT_NVS_CERT_KEY  "cert_pem"
 #define CERT_NVS_PKEY_KEY  "pkey_pem"
+#define CERT_NVS_CA_CERT_KEY "ca_cert"
+#define CERT_NVS_CA_KEY_KEY  "ca_key"
+#define CERT_NVS_CA_SUBJ_KEY "ca_subj"
 
 // Identity a stored certificate was issued for.  Bumping the leading version
 // invalidates every previously stored certificate, which is how a change to the
@@ -63,10 +66,12 @@
 // its SAN is merely whatever it was at issue time, and a mismatch there changes
 // nothing for a certificate the browser already treats as untrusted.
 #define CERT_NVS_IDENT_KEY "ident"
-#define CERT_FORMAT_VERSION 3
+#define CERT_FORMAT_VERSION 4
 #define CERT_IDENT_MAX_LEN 64
 
-#define CERT_PEM_MAX_LEN   2048
+#define CERT_PEM_MAX_LEN   3072   // leaf + CA chain
+#define CA_PEM_MAX_LEN     1536
+#define CA_SUBJ_MAX_LEN    96
 #define KEY_PEM_MAX_LEN    1024
 
 // Fixed validity window: 2020 through 2050 (30 years).  Fixed strings rather than
@@ -106,11 +111,26 @@ static char cert_host[PS_SSID_MAX_LEN+1];
 static unsigned char cert_ip[4];
 static char cert_ident[CERT_IDENT_MAX_LEN];
 
+// The camera's own certificate authority.  Created once and never reissued -
+// devices install this one certificate into their trust store, after which the
+// server certificate below (signed by it) is trusted no matter how often it is
+// reissued for renames.  The subject string is stored verbatim because the
+// server certificate's issuer field must match it byte for byte.
+static unsigned char* ca_cert_buf = NULL;
+static unsigned char* ca_key_buf = NULL;
+static size_t ca_cert_buf_len = 0;   // includes null terminator
+static size_t ca_key_buf_len = 0;
+static char ca_subject[CA_SUBJ_MAX_LEN];
+
 
 //
 // Cert Utilities forward declarations
 //
 static bool cert_load_from_nvs();
+static bool ca_ensure();
+static bool ca_load_from_nvs();
+static bool ca_generate();
+static bool ca_store_to_nvs();
 static bool cert_generate();
 static bool cert_store_to_nvs();
 static bool cert_verify();
@@ -127,7 +147,9 @@ static volatile bool gen_result = false;
 
 static void cert_gen_task(void* arg)
 {
-	gen_result = cert_generate();
+	// The CA must exist before a server certificate can be signed by it.  Both
+	// run here, on the one stack sized for EC math.
+	gen_result = ca_ensure() && cert_generate();
 	xSemaphoreGive(gen_done_sem);
 	vTaskDelete(NULL);
 }
@@ -199,6 +221,23 @@ bool cert_get(const char* host, const unsigned char* ip4,
 }
 
 
+bool cert_get_ca(const unsigned char** pem, size_t* len)
+{
+	// The plain-HTTP server (which serves the download) starts before the HTTPS
+	// path has run cert_get, so pull the CA from NVS on demand.  No generation
+	// here - if none exists yet, the HTTPS startup moments later creates it.
+	if (ca_cert_buf == NULL) {
+		if (!ca_load_from_nvs()) {
+			return false;
+		}
+	}
+
+	*pem = ca_cert_buf;
+	*len = ca_cert_buf_len - 1;   // without the null - this goes into a file
+	return true;
+}
+
+
 //
 // Cert Utilities internal functions
 //
@@ -263,6 +302,188 @@ static bool cert_load_from_nvs()
 }
 
 
+/**
+ * Make sure the CA exists: load it, or mint it (once, ever).  Runs on the
+ * generation task's large stack.
+ */
+static bool ca_ensure()
+{
+	if (ca_cert_buf != NULL) return true;
+	if (ca_load_from_nvs()) return true;
+
+	ESP_LOGI(TAG, "Creating this camera's certificate authority (one time only)");
+	if (!ca_generate()) return false;
+	if (!ca_store_to_nvs()) {
+		// Usable this boot; recreated next time - but installs done against this
+		// copy would be orphaned, so say so loudly
+		ESP_LOGE(TAG, "Could not persist CA - do not install it on devices yet");
+	}
+	return true;
+}
+
+
+static bool ca_load_from_nvs()
+{
+	esp_err_t err;
+	nvs_handle_t h;
+	size_t clen = 0, klen = 0, slen = sizeof(ca_subject);
+
+	err = nvs_open(CERT_NVS_NAMESPACE, NVS_READONLY, &h);
+	if (err != ESP_OK) return false;
+
+	if ((nvs_get_blob(h, CERT_NVS_CA_CERT_KEY, NULL, &clen) != ESP_OK) ||
+	    (nvs_get_blob(h, CERT_NVS_CA_KEY_KEY, NULL, &klen) != ESP_OK) ||
+	    (nvs_get_str(h, CERT_NVS_CA_SUBJ_KEY, ca_subject, &slen) != ESP_OK) ||
+	    (clen == 0) || (klen == 0) ||
+	    (clen > CA_PEM_MAX_LEN) || (klen > KEY_PEM_MAX_LEN)) {
+		nvs_close(h);
+		return false;
+	}
+
+	ca_cert_buf = malloc(clen);
+	ca_key_buf = malloc(klen);
+	if ((ca_cert_buf == NULL) || (ca_key_buf == NULL)) {
+		nvs_close(h);
+		free(ca_cert_buf); ca_cert_buf = NULL;
+		free(ca_key_buf);  ca_key_buf = NULL;
+		return false;
+	}
+
+	if ((nvs_get_blob(h, CERT_NVS_CA_CERT_KEY, ca_cert_buf, &clen) != ESP_OK) ||
+	    (nvs_get_blob(h, CERT_NVS_CA_KEY_KEY, ca_key_buf, &klen) != ESP_OK) ||
+	    (ca_cert_buf[clen-1] != 0) || (ca_key_buf[klen-1] != 0)) {
+		nvs_close(h);
+		free(ca_cert_buf); ca_cert_buf = NULL;
+		free(ca_key_buf);  ca_key_buf = NULL;
+		return false;
+	}
+	nvs_close(h);
+
+	ca_cert_buf_len = clen;
+	ca_key_buf_len = klen;
+	ESP_LOGI(TAG, "Loaded CA from NVS (%s)", ca_subject);
+	return true;
+}
+
+
+static bool ca_generate()
+{
+	bool success = false;
+	int ret;
+	mbedtls_ctr_drbg_context ctr_drbg;
+	mbedtls_entropy_context entropy;
+	mbedtls_pk_context key;
+	mbedtls_x509write_cert crt;
+	unsigned char serial_bytes[16];
+	const char* pers = "tcam_ca_gen";
+
+	mbedtls_entropy_init(&entropy);
+	mbedtls_ctr_drbg_init(&ctr_drbg);
+	mbedtls_pk_init(&key);
+	mbedtls_x509write_crt_init(&crt);
+
+	ca_cert_buf = malloc(CA_PEM_MAX_LEN);
+	ca_key_buf = malloc(KEY_PEM_MAX_LEN);
+	if ((ca_cert_buf == NULL) || (ca_key_buf == NULL)) {
+		ESP_LOGE(TAG, "CA buffer allocation failed");
+		goto done;
+	}
+
+	ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+	                            (const unsigned char*) pers, strlen(pers));
+	if (ret != 0) { ESP_LOGE(TAG, "CA drbg seed failed (-0x%04x)", -ret); goto done; }
+
+	ret = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
+	if (ret != 0) { ESP_LOGE(TAG, "CA pk setup failed (-0x%04x)", -ret); goto done; }
+
+	ret = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(key),
+	                          mbedtls_ctr_drbg_random, &ctr_drbg);
+	if (ret != 0) { ESP_LOGE(TAG, "CA key generation failed (-0x%04x)", -ret); goto done; }
+
+	esp_fill_random(serial_bytes, sizeof(serial_bytes));
+	serial_bytes[0] = (serial_bytes[0] & 0x7F) | 0x01;
+
+	// The camera name at creation time distinguishes this CA from other cameras'
+	// in a device's trust store.  The string is persisted verbatim: the server
+	// certificate's issuer must match it byte for byte forever, including after
+	// the camera is renamed.
+	snprintf(ca_subject, sizeof(ca_subject), "CN=%s Root CA,O=tCam", cert_host);
+
+	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
+	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
+	mbedtls_x509write_crt_set_subject_key(&crt, &key);
+	mbedtls_x509write_crt_set_issuer_key(&crt, &key);
+
+	ret = mbedtls_x509write_crt_set_serial_raw(&crt, serial_bytes, sizeof(serial_bytes));
+	if (ret != 0) { ESP_LOGE(TAG, "CA serial failed (-0x%04x)", -ret); goto done; }
+
+	ret = mbedtls_x509write_crt_set_subject_name(&crt, ca_subject);
+	if (ret != 0) { ESP_LOGE(TAG, "CA subject failed (-0x%04x)", -ret); goto done; }
+	ret = mbedtls_x509write_crt_set_issuer_name(&crt, ca_subject);
+	if (ret != 0) { ESP_LOGE(TAG, "CA issuer failed (-0x%04x)", -ret); goto done; }
+	ret = mbedtls_x509write_crt_set_validity(&crt, CERT_NOT_BEFORE, CERT_NOT_AFTER);
+	if (ret != 0) { ESP_LOGE(TAG, "CA validity failed (-0x%04x)", -ret); goto done; }
+
+	// What makes it a CA: basic constraints CA:TRUE (path length 0 - it may sign
+	// server certificates but not other CAs) and certificate-signing key usage
+	ret = mbedtls_x509write_crt_set_basic_constraints(&crt, 1, 0);
+	if (ret != 0) { ESP_LOGE(TAG, "CA constraints failed (-0x%04x)", -ret); goto done; }
+	ret = mbedtls_x509write_crt_set_key_usage(&crt,
+			MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_CRL_SIGN);
+	if (ret != 0) { ESP_LOGE(TAG, "CA key usage failed (-0x%04x)", -ret); goto done; }
+
+	ret = mbedtls_x509write_crt_set_subject_key_identifier(&crt);
+	if (ret != 0) { ESP_LOGE(TAG, "CA subject key id failed (-0x%04x)", -ret); goto done; }
+	ret = mbedtls_x509write_crt_set_authority_key_identifier(&crt);
+	if (ret != 0) { ESP_LOGE(TAG, "CA authority key id failed (-0x%04x)", -ret); goto done; }
+
+	ret = mbedtls_x509write_crt_pem(&crt, ca_cert_buf, CA_PEM_MAX_LEN,
+	                                mbedtls_ctr_drbg_random, &ctr_drbg);
+	if (ret != 0) { ESP_LOGE(TAG, "CA pem write failed (-0x%04x)", -ret); goto done; }
+
+	ret = mbedtls_pk_write_key_pem(&key, ca_key_buf, KEY_PEM_MAX_LEN);
+	if (ret != 0) { ESP_LOGE(TAG, "CA key pem write failed (-0x%04x)", -ret); goto done; }
+
+	ca_cert_buf_len = strlen((char*) ca_cert_buf) + 1;
+	ca_key_buf_len = strlen((char*) ca_key_buf) + 1;
+	ESP_LOGI(TAG, "Generated CA '%s' (%d byte PEM)", ca_subject, (int) ca_cert_buf_len);
+	success = true;
+
+done:
+	if (!success) {
+		free(ca_cert_buf); ca_cert_buf = NULL;
+		free(ca_key_buf);  ca_key_buf = NULL;
+	}
+	mbedtls_x509write_crt_free(&crt);
+	mbedtls_pk_free(&key);
+	mbedtls_ctr_drbg_free(&ctr_drbg);
+	mbedtls_entropy_free(&entropy);
+	return success;
+}
+
+
+static bool ca_store_to_nvs()
+{
+	esp_err_t err;
+	nvs_handle_t h;
+
+	err = nvs_open(CERT_NVS_NAMESPACE, NVS_READWRITE, &h);
+	if (err != ESP_OK) return false;
+
+	if ((nvs_set_blob(h, CERT_NVS_CA_CERT_KEY, ca_cert_buf, ca_cert_buf_len) != ESP_OK) ||
+	    (nvs_set_blob(h, CERT_NVS_CA_KEY_KEY, ca_key_buf, ca_key_buf_len) != ESP_OK) ||
+	    (nvs_set_str(h, CERT_NVS_CA_SUBJ_KEY, ca_subject) != ESP_OK) ||
+	    (nvs_commit(h) != ESP_OK)) {
+		nvs_close(h);
+		return false;
+	}
+
+	nvs_close(h);
+	ESP_LOGI(TAG, "CA stored");
+	return true;
+}
+
+
 static bool cert_generate()
 {
 	bool success = false;
@@ -270,6 +491,7 @@ static bool cert_generate()
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_entropy_context entropy;
 	mbedtls_pk_context key;
+	mbedtls_pk_context ca_key;
 	mbedtls_x509write_cert crt;
 	unsigned char serial_bytes[16];
 	unsigned char san[160];
@@ -280,7 +502,13 @@ static bool cert_generate()
 	mbedtls_entropy_init(&entropy);
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	mbedtls_pk_init(&key);
+	mbedtls_pk_init(&ca_key);
 	mbedtls_x509write_crt_init(&crt);
+
+	// The issuer signs; ca_ensure() ran first so these exist
+	ret = mbedtls_pk_parse_key(&ca_key, ca_key_buf, ca_key_buf_len, NULL, 0,
+	                           cert_rng, NULL);
+	if (ret != 0) { ESP_LOGE(TAG, "CA key parse failed (-0x%04x)", -ret); goto done; }
 
 	cert_buf = malloc(CERT_PEM_MAX_LEN);
 	key_buf = malloc(KEY_PEM_MAX_LEN);
@@ -310,7 +538,9 @@ static bool cert_generate()
 	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
 	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
 	mbedtls_x509write_crt_set_subject_key(&crt, &key);
-	mbedtls_x509write_crt_set_issuer_key(&crt, &key);
+	// Signed BY THE CA - this is what turns a per-device trust-store install
+	// into silence from the browser
+	mbedtls_x509write_crt_set_issuer_key(&crt, &ca_key);
 
 	// mbedTLS 3 deprecated the mpi-based setter in favour of raw serial bytes
 	ret = mbedtls_x509write_crt_set_serial_raw(&crt, serial_bytes, sizeof(serial_bytes));
@@ -319,7 +549,9 @@ static bool cert_generate()
 	snprintf(subject, sizeof(subject), "CN=%s,O=tCam", cert_host);
 	ret = mbedtls_x509write_crt_set_subject_name(&crt, subject);
 	if (ret != 0) { ESP_LOGE(TAG, "subject failed (-0x%04x)", -ret); goto done; }
-	ret = mbedtls_x509write_crt_set_issuer_name(&crt, subject);
+	// Byte for byte the CA's subject, from the stored copy - a mismatch breaks
+	// chain building silently
+	ret = mbedtls_x509write_crt_set_issuer_name(&crt, ca_subject);
 	if (ret != 0) { ESP_LOGE(TAG, "issuer failed (-0x%04x)", -ret); goto done; }
 	ret = mbedtls_x509write_crt_set_validity(&crt, CERT_NOT_BEFORE, CERT_NOT_AFTER);
 	if (ret != 0) { ESP_LOGE(TAG, "validity failed (-0x%04x)", -ret); goto done; }
@@ -360,9 +592,17 @@ static bool cert_generate()
 	ret = mbedtls_pk_write_key_pem(&key, key_buf, KEY_PEM_MAX_LEN);
 	if (ret != 0) { ESP_LOGE(TAG, "key pem write failed (-0x%04x)", -ret); goto done; }
 
+	// The server hands out the full chain - leaf then CA - so clients that have
+	// installed the CA can build the path without any AIA fetching
+	if ((strlen((char*) cert_buf) + ca_cert_buf_len + 1) > CERT_PEM_MAX_LEN) {
+		ESP_LOGE(TAG, "Chain does not fit");
+		goto done;
+	}
+	strcat((char*) cert_buf, (char*) ca_cert_buf);
+
 	cert_buf_len = strlen((char*) cert_buf) + 1;
 	key_buf_len = strlen((char*) key_buf) + 1;
-	ESP_LOGI(TAG, "Generated certificate (%d + %d bytes, valid to 2050)",
+	ESP_LOGI(TAG, "Generated CA-signed certificate chain (%d + %d bytes, valid to 2050)",
 	         (int) cert_buf_len, (int) key_buf_len);
 	success = true;
 
@@ -372,6 +612,7 @@ done:
 		free(key_buf);  key_buf = NULL;
 	}
 	mbedtls_x509write_crt_free(&crt);
+	mbedtls_pk_free(&ca_key);
 	mbedtls_pk_free(&key);
 	mbedtls_ctr_drbg_free(&ctr_drbg);
 	mbedtls_entropy_free(&entropy);

@@ -561,15 +561,25 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
       running.</div>
 
     <div class="sect">Security</div>
-    <div class="hint" id="tlsHint">The camera also serves this interface over HTTPS on port 443
-      with a certificate it generated for itself (valid to 2050). Your browser will warn once
-      per device because the certificate is self-signed — that is expected for a device with no
-      public name; accept it to continue.
-      <br><br><b>Video over HTTPS:</b> some browsers accept the certificate for pages and
-      settings but refuse to apply it to the encrypted video stream (WebSockets). If the
-      settings work over HTTPS but the image never appears, that is your browser's policy, not
-      a camera fault — use the HTTP address for viewing; the UI offers the switch
-      automatically.</div>
+    <div class="row">
+      <a class="btn" id="caBtn" href="/ca.crt" download="tCam-CA.crt"
+         style="display:block;text-align:center;text-decoration:none">Download certificate (tCam CA)</a>
+    </div>
+    <div class="hint" id="tlsHint">The camera runs its own tiny certificate authority and
+      serves HTTPS on port 443 with a certificate signed by it (valid to 2050). Install the
+      CA <b>once per device</b> and this camera becomes fully trusted there: no warnings,
+      encrypted video works, and the browser offers real app installation.
+      <br><br><b>Android:</b> download, then Settings &rarr; search "CA certificate" &rarr;
+      Install anyway &rarr; pick the file. (Android then shows a standing "network may be
+      monitored" notice — that is how it marks any user-installed CA.)
+      <br><b>Windows:</b> double-click the file &rarr; Install Certificate &rarr; Local
+      Machine &rarr; "Place all certificates in the following store" &rarr; Trusted Root
+      Certification Authorities.
+      <br><b>iPhone/iPad:</b> download in Safari &rarr; Settings &rarr; Profile Downloaded
+      &rarr; Install; then Settings &rarr; General &rarr; About &rarr; Certificate Trust
+      Settings &rarr; enable for tCam.
+      <br><br>Without the install, everything still works as before: http for video, https
+      accepted per-browser with a one-time warning.</div>
     <div class="row" id="tlsLinkRow" style="display:none;margin-top:10px">
       <button class="btn" id="tlsGo">Open the encrypted version</button>
     </div>

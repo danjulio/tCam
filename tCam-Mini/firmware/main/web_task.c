@@ -102,6 +102,7 @@ static esp_err_t manifest_get_handler(httpd_req_t* req);
 static esp_err_t icon_get_handler(httpd_req_t* req);
 static esp_err_t discover_get_handler(httpd_req_t* req);
 static esp_err_t log_get_handler(httpd_req_t* req);
+static esp_err_t ca_get_handler(httpd_req_t* req);
 static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err);
 static void register_handlers(httpd_handle_t hd);
 static void register_uri(httpd_handle_t hd, const httpd_uri_t* uri);
@@ -291,6 +292,9 @@ static void register_handlers(httpd_handle_t hd)
 	static const httpd_uri_t log_uri = {
 		.uri = "/api/log", .method = HTTP_GET, .handler = log_get_handler, .user_ctx = NULL
 	};
+	static const httpd_uri_t ca_uri = {
+		.uri = "/ca.crt", .method = HTTP_GET, .handler = ca_get_handler, .user_ctx = NULL
+	};
 
 	// The WebSocket goes in first.  It carries the image stream, so if the table
 	// ever runs short again it must not be the endpoint that loses its slot.
@@ -309,6 +313,7 @@ static void register_handlers(httpd_handle_t hd)
 	register_uri(hd, &icon512_uri);
 	register_uri(hd, &discover_uri);
 	register_uri(hd, &log_uri);
+	register_uri(hd, &ca_uri);
 
 	// Anything else - including every OS connectivity probe - is bounced to the UI
 	httpd_register_err_handler(hd, HTTPD_404_NOT_FOUND, redirect_handler);
@@ -867,6 +872,27 @@ static esp_err_t log_get_handler(httpd_req_t* req)
 
 	heap_caps_free(buf);
 	return ret;
+}
+
+
+/**
+ * The camera's CA certificate, as a downloadable file.  Installing it into a
+ * device's trust store makes this camera's https fully trusted there.
+ */
+static esp_err_t ca_get_handler(httpd_req_t* req)
+{
+	const unsigned char* pem;
+	size_t len;
+
+	if (!cert_get_ca(&pem, &len)) {
+		return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND,
+		                           "No certificate authority exists yet");
+	}
+
+	httpd_resp_set_type(req, "application/x-x509-ca-cert");
+	httpd_resp_set_hdr(req, "Content-Disposition",
+	                   "attachment; filename=\"tCam-CA.crt\"");
+	return httpd_resp_send(req, (const char*) pem, len);
 }
 
 

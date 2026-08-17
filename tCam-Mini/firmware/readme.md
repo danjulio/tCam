@@ -22,6 +22,26 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.6
+FW revision 6.6 gives the camera its own certificate authority, unlocking fully
+trusted HTTPS.
+
+1. The camera now mints a tiny CA on first boot (once, ever) and signs its
+server certificate with it, serving the full chain.  Settings -> System ->
+Security offers the CA for download (`/ca.crt`) with per-OS install
+instructions.  A device that installs it sees the camera as fully trusted:
+green-lock https with no warnings, encrypted video (wss) working - the entire
+https-video limitation disappears - and the browser willing to offer real
+one-tap app installation, which requires a secure context that a self-signed
+certificate can never provide.  Devices that skip the install keep exactly the
+previous behavior.
+2. The CA is created once and survives camera renames; the server certificate
+reissues freely underneath it without re-installing anything.  The certificate
+format version bumps, so cameras upgrade their stored certificate to the
+CA-signed chain automatically on first boot - browsers that had accepted the
+old self-signed certificate will show their warning once more (or nothing at
+all, once the CA is installed).
+
 #### FW 6.5
 FW revision 6.5 fixes a boot crash introduced by 6.4's log capture.
 
