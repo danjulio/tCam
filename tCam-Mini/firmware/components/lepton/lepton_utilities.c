@@ -176,10 +176,9 @@ bool lepton_init()
   		return false;
 	}
 	
-	// Emissivity
+	// Emissivity (logs its own verified result)
 	if (lep_is_radiometric) {
 		lepton_emissivity(lep_stP->emissivity);
-		ESP_LOGI(TAG, "Lepton Emissivity = %d%%", lep_stP->emissivity);
 	}
   	
 	// Finally enable VSYNC on Lepton GPIO3
@@ -207,18 +206,51 @@ int lepton_get_model()
 }
 
 
+/**
+ * Switch between AGC (display contrast) and radiometric output.  The two are
+ * mutually exclusive inside the Lepton: AGC needs TLinear off and vice versa.
+ *
+ * Every write is verified and retried, the same way lepton_init() treats its
+ * writes.  As the note at the top of this file says, the Lepton sometimes
+ * fails a command silently - and this runtime path used to trust the writes.
+ * A dropped TLinear re-enable then left the sensor with AGC off AND
+ * radiometry off, so its output was raw uncalibrated counts that the UI
+ * dutifully formatted as (nonsense) temperatures.
+ */
 void lepton_agc(bool en)
 {
-	if (en) {
-		if (lep_is_radiometric) {
-			cci_set_radiometry_tlinear_enable_state(CCI_RADIOMETRY_TLINEAR_DISABLED);
+	int attempt;
+	uint32_t rsp = 0;
+	uint32_t want;
+
+	if (lep_is_radiometric) {
+		want = en ? CCI_RADIOMETRY_TLINEAR_DISABLED : CCI_RADIOMETRY_TLINEAR_ENABLED;
+		for (attempt = 0; attempt < 3; attempt++) {
+			cci_set_radiometry_tlinear_enable_state(want);
+			rsp = cci_get_radiometry_tlinear_enable_state();
+			if (rsp == want) break;
+			vTaskDelay(pdMS_TO_TICKS(10));
 		}
-		cci_set_agc_enable_state(CCI_AGC_ENABLED);
+		if (rsp != want) {
+			ESP_LOGE(TAG, "TLinear = %d did not stick (sensor reports %d)",
+			         (int) want, (int) rsp);
+		} else {
+			ESP_LOGI(TAG, "Lepton Radiometry TLinear = %d", (int) rsp);
+		}
+	}
+
+	want = en ? CCI_AGC_ENABLED : CCI_AGC_DISABLED;
+	for (attempt = 0; attempt < 3; attempt++) {
+		cci_set_agc_enable_state(want);
+		rsp = cci_get_agc_enable_state();
+		if (rsp == want) break;
+		vTaskDelay(pdMS_TO_TICKS(10));
+	}
+	if (rsp != want) {
+		ESP_LOGE(TAG, "AGC = %d did not stick (sensor reports %d)",
+		         (int) want, (int) rsp);
 	} else {
-		if (lep_is_radiometric) {
-			cci_set_radiometry_tlinear_enable_state(CCI_RADIOMETRY_TLINEAR_ENABLED);
-		}
-		cci_set_agc_enable_state(CCI_AGC_DISABLED);
+		ESP_LOGI(TAG, "Lepton AGC = %d", (int) rsp);
 	}
 }
 
@@ -269,7 +301,9 @@ bool lepton_shutter_parked()
 void lepton_gain_mode(uint8_t mode)
 {
 	cc_gain_mode_t gain_mode;
-	
+	int attempt;
+	uint32_t rsp = 0;
+
 	if (lep_is_radiometric) {
 		switch (mode) {
 			case SYS_GAIN_HIGH:
@@ -281,7 +315,20 @@ void lepton_gain_mode(uint8_t mode)
 			default:
 				gain_mode = LEP_SYS_GAIN_MODE_AUTO;
 		}
-		cci_set_gain_mode(gain_mode);
+		// Verified like every boot-time write (see the note at the top of this
+		// file about silently failing commands)
+		for (attempt = 0; attempt < 3; attempt++) {
+			cci_set_gain_mode(gain_mode);
+			rsp = cci_get_gain_mode();
+			if (rsp == (uint32_t) gain_mode) break;
+			vTaskDelay(pdMS_TO_TICKS(10));
+		}
+		if (rsp != (uint32_t) gain_mode) {
+			ESP_LOGE(TAG, "Gain mode = %d did not stick (sensor reports %d)",
+			         (int) gain_mode, (int) rsp);
+		} else {
+			ESP_LOGI(TAG, "Lepton Gain Mode = %d", (int) rsp);
+		}
 	}
 }
 
@@ -296,8 +343,10 @@ void lepton_spotmeter(uint16_t r1, uint16_t c1, uint16_t r2, uint16_t c2)
 
 void lepton_emissivity(uint16_t e)
 {
+	cci_rad_flux_linear_params_t chk;
 	cci_rad_flux_linear_params_t set_flux_values;
-	
+	int attempt;
+
 	if (lep_is_radiometric) {
 		// Scale percentage e into Lepton scene emissivity values (1-100% -> 82-8192).
 		// Round UP: plain integer division mapped 1% to 81, one below the Lepton's
@@ -307,7 +356,7 @@ void lepton_emissivity(uint16_t e)
 		if (e < 1) e = 1;
 		if (e > 100) e = 100;
 		set_flux_values.sceneEmissivity = (e * 8192 + 99) / 100;
-		
+
 		// Set default (no lens) values for the remaining parameters
 		set_flux_values.TBkgK      = 29515;
 		set_flux_values.tauWindow  = 8192;
@@ -316,8 +365,23 @@ void lepton_emissivity(uint16_t e)
 		set_flux_values.TAtmK      = 29515;
 		set_flux_values.reflWindow = 0;
 		set_flux_values.TReflK     = 29515;
-		
-		cci_set_radiometry_flux_linear_params(&set_flux_values);
+
+		// Write, then read back what the sensor actually holds.  This is the
+		// parameter block whose silent rejection hid a bad value for weeks -
+		// never trust the write again.
+		memset(&chk, 0, sizeof(chk));
+		for (attempt = 0; attempt < 3; attempt++) {
+			cci_set_radiometry_flux_linear_params(&set_flux_values);
+			if (cci_get_radiometry_flux_linear_params(&chk) &&
+			    (chk.sceneEmissivity == set_flux_values.sceneEmissivity)) {
+				ESP_LOGI(TAG, "Lepton Emissivity = %d%% (scene %d)",
+				         (int) e, (int) chk.sceneEmissivity);
+				return;
+			}
+			vTaskDelay(pdMS_TO_TICKS(10));
+		}
+		ESP_LOGE(TAG, "Emissivity %d%% did not apply (sensor reports scene %d)",
+		         (int) e, (int) chk.sceneEmissivity);
 	}
 }
 

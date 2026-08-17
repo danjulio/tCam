@@ -22,6 +22,26 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.10
+FW revision 6.10 makes Lepton mode changes verified, and makes the UI honest
+when the sensor is not producing temperatures.
+
+1. The runtime sensor writes - AGC on/off, emissivity, gain - fired their CCI
+commands and trusted them.  The note at the top of lepton_utilities.c has
+warned since Dan wrote it that Lepton commands sometimes fail silently, and
+boot-time init has always verified its writes with read-back and retry; the
+runtime paths now do the same and log the verified result (visible in the web
+System log).  The dangerous case this closes: turning AGC off issues two
+writes (radiometry TLinear on, AGC off), and if the TLinear write dropped, the
+sensor was left producing raw uncalibrated counts that the UI formatted as
+absurd "temperatures".
+2. The UI now reads the sensor's own radiometry flag from telemetry (row C
+word 48) every frame.  If the sensor reports TLinear off while AGC is off, the
+readouts say "no cal" instead of nonsense degrees, the scale says "raw", the
+isotherm and capture overlay suspend, and a new "Radiometry (T-Linear)" row in
+the System tab's telemetry section names the state.  Toggling AGC on and off
+again (now verified) or rebooting restores radiometry.
+
 #### FW 6.9
 FW revision 6.9 removes HTTPS support entirely.  The camera serves plain HTTP
 only.

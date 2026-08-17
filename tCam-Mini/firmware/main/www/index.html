@@ -444,6 +444,7 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
     <div class="kv"><span>Housing temperature</span><span id="tHouse">--</span></div>
     <div class="kv"><span>Effective gain</span><span id="tGain">--</span></div>
     <div class="kv"><span>Emissivity</span><span id="tEmis">--</span></div>
+    <div class="kv"><span>Radiometry (T-Linear)</span><span id="tTlin">--</span></div>
     <div class="kv"><span>T-Linear resolution</span><span id="tRes">--</span></div>
     <div class="kv"><span>Spot mean</span><span id="tSpot">--</span></div>
     <div class="kv"><span>Frames received</span><span id="tFrames">0</span></div>
@@ -601,6 +602,7 @@ var raw=null, lastJson=null, lastBin=null;
 var norm8=new Uint8Array(NPIX);
 var scaleS=2, img=null, sx0=null, sx1=null, sfx=null, sy0=null, sy1=null, sfy=null;
 var res=0.01, spotK=null, fpaC=null, houseC=null, effGain=null, emisPct=null;
+var tlinOn=null;   // sensor's own radiometry flag from telemetry; null until known
 var minV=0,maxV=0,minI=0,maxI=0;
 var hist=new Uint32Array(16384);   // 4-count-wide bins over the 16-bit range
 var rangeLo=null, rangeHi=null;
@@ -777,7 +779,7 @@ function render(){
   // color.  The comparison happens in normalized-byte space so it costs nothing
   // extra in the interpolation loops; 256 means "disabled" since no byte reaches it.
   var isoN=256;
-  if($("isoEn").checked && !agcOn){
+  if($("isoEn").checked && !agcOn && tlinOn!==false){
     var isoC=parseFloat($("isoT").value);
     if(!isNaN(isoC)){
       if(useF) isoC=(isoC-32)*5/9;
@@ -814,9 +816,10 @@ function render(){
   }
   ctx.putImageData(img,0,0);
 
-  $("sLo").textContent = agcOn?"AGC":fmt(toC(lo)).replace("°C","").replace("°F","");
-  $("sHi").textContent = agcOn?"":fmt(toC(hi));
-  $("sMid").textContent = agcOn?"":fmt(toC((lo+hi)/2));
+  var noTemps = agcOn || tlinOn===false;
+  $("sLo").textContent = noTemps?(agcOn?"AGC":"raw"):fmt(toC(lo)).replace("°C","").replace("°F","");
+  $("sHi").textContent = noTemps?"":fmt(toC(hi));
+  $("sMid").textContent = noTemps?"":fmt(toC((lo+hi)/2));
   drawMarks();
   updateReadouts();
 
@@ -867,6 +870,12 @@ function drawMarks(){
 function updateReadouts(){
   if(agcOn){
     $("rSpot").textContent=$("rMax").textContent=$("rMin").textContent=$("rProbe").textContent="AGC";
+  }else if(tlinOn===false){
+    // AGC is supposed to be off, yet the sensor says radiometry is not
+    // running - its pixels are uncalibrated counts, and printing them as
+    // degrees would be a lie.  The System tab's telemetry section names the
+    // state; toggling AGC on and off again (or FFC) re-issues the mode.
+    $("rSpot").textContent=$("rMax").textContent=$("rMin").textContent=$("rProbe").textContent="no cal";
   }else if(!raw){
     // No frame has arrived yet.  Tapping the image calls straight through to
     // here, and reading the pixel array before it exists threw out of the click
@@ -885,8 +894,9 @@ function updateReadouts(){
   $("tHouse").textContent = fmt(houseC);
   $("tGain").textContent  = effGain===null?"--":(effGain===0?"High":"Low");
   $("tEmis").textContent  = emisPct===null?"--":emisPct.toFixed(0)+"%";
+  $("tTlin").textContent  = tlinOn===null?"--":(tlinOn?"on (pixels are temperatures)":"OFF — raw counts, no temperatures");
   $("tRes").textContent   = res+" K/count";
-  $("tSpot").textContent  = spotK!==null?fmt(spotK*res-273.15):"--";
+  $("tSpot").textContent  = (spotK!==null && tlinOn!==false)?fmt(spotK*res-273.15):"--";
 }
 
 /* ============================== frames ============================== */
@@ -898,6 +908,10 @@ function applyTelem(t){
     houseC = t[26]/100-273.15;       // row A word 26
     effGain= t[166];                 // row C word 6
     emisPct= t[99]/8192*100;         // row B word 19
+    // The sensor's own word on whether pixels are temperatures.  When a mode
+    // change is dropped by the sensor (its commands can fail silently), this
+    // is what catches it - the page must not dress raw counts up as degrees.
+    tlinOn = (t[208]===1);           // row C word 48: TLinear enable state
   }
 }
 
@@ -1134,7 +1148,7 @@ $("auto").onchange=function(){
 };
 $("rlo").oninput=$("rhi").oninput=render;
 $("lockRange").onclick=function(){
-  if(rangeLo===null||agcOn) return;
+  if(rangeLo===null||agcOn||tlinOn===false) return;
   $("auto").checked=false;
   $("manual").style.display="grid";
   $("rlo").value=disp(toC(rangeLo)).toFixed(1);
@@ -1515,7 +1529,7 @@ function drawOverlayData(g,w,h){
          p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
   box(pad,pad,[$("camname").textContent,ts],["#eef2f7","#7e8b9c"]);
 
-  if(!agcOn && raw){
+  if(!agcOn && tlinOn!==false && raw){
     var spotC = spotK!==null ? spotK*res-273.15 : toC(raw[spotPos.y*W+spotPos.x]);
     var lines=["Spot "+fmt(spotC),"Max "+fmt(toC(maxV)),"Min "+fmt(toC(minV))];
     var colors=["#ff7a1a","#ff5252","#39c4ff"];
