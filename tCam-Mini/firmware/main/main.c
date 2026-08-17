@@ -28,6 +28,7 @@
 #include "net_cmd_task.h"
 #include "sif_cmd_task.h"
 #include "ctrl_task.h"
+#include "log_ring.h"
 #include "lep_task.h"
 #include "mon_task.h"
 #include "rsp_task.h"
@@ -44,7 +45,10 @@ void app_main(void)
 {
 	int brd_type;
 	int if_mode;
-	
+
+    // Capture the log into a ring the web UI can show, before anything logs
+    log_ring_init();
+
     ESP_LOGI(TAG, "tCamMini starting");
     
     // Start the control task to light the red light immediately

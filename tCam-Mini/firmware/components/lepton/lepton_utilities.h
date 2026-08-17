@@ -145,7 +145,6 @@ bool lepton_is_radiometric();
 int lepton_get_model();
 void lepton_agc(bool en);
 void lepton_ffc();
-void lepton_ffc_cadence();
 void lepton_shutter_park();
 void lepton_shutter_unpark();
 bool lepton_shutter_parked();

@@ -1,4 +1,4 @@
-set(SOURCES main.c cert_utilities.c client_if.c ctrl_task.c dns_hijack.c lep_task.c mon_task.c
+set(SOURCES main.c cert_utilities.c client_if.c ctrl_task.c dns_hijack.c lep_task.c log_ring.c mon_task.c
             net_cmd_task.c rsp_task.c sif_cmd_task.c web_cmd.c web_task.c)
 
 # Compress the web UI and draw the app icons before they are embedded.

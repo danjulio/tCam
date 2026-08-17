@@ -31,6 +31,7 @@
 #include "cert_utilities.h"
 #include "client_if.h"
 #include "dns_hijack.h"
+#include "log_ring.h"
 #include "ctrl_task.h"
 #include "net_utilities.h"
 #include "wifi_utilities.h"
@@ -100,6 +101,7 @@ static esp_err_t ota_post_handler(httpd_req_t* req);
 static esp_err_t manifest_get_handler(httpd_req_t* req);
 static esp_err_t icon_get_handler(httpd_req_t* req);
 static esp_err_t discover_get_handler(httpd_req_t* req);
+static esp_err_t log_get_handler(httpd_req_t* req);
 static esp_err_t redirect_handler(httpd_req_t* req, httpd_err_code_t err);
 static void register_handlers(httpd_handle_t hd);
 static void register_uri(httpd_handle_t hd, const httpd_uri_t* uri);
@@ -286,6 +288,9 @@ static void register_handlers(httpd_handle_t hd)
 	static const httpd_uri_t discover_uri = {
 		.uri = "/api/discover", .method = HTTP_GET, .handler = discover_get_handler, .user_ctx = NULL
 	};
+	static const httpd_uri_t log_uri = {
+		.uri = "/api/log", .method = HTTP_GET, .handler = log_get_handler, .user_ctx = NULL
+	};
 
 	// The WebSocket goes in first.  It carries the image stream, so if the table
 	// ever runs short again it must not be the endpoint that loses its slot.
@@ -303,6 +308,7 @@ static void register_handlers(httpd_handle_t hd)
 	register_uri(hd, &icon192_uri);
 	register_uri(hd, &icon512_uri);
 	register_uri(hd, &discover_uri);
+	register_uri(hd, &log_uri);
 
 	// Anything else - including every OS connectivity probe - is bounced to the UI
 	httpd_register_err_handler(hd, HTTPD_404_NOT_FOUND, redirect_handler);
@@ -837,6 +843,33 @@ static esp_err_t icon_get_handler(httpd_req_t* req)
  * would stutter other HTTP requests if it ran on a timer; image frames are not
  * affected, because rsp_task writes them straight to the socket.
  */
+/**
+ * Serve the buffered system log as plain text - the serial console without the
+ * cable.  Allocated per request (PSRAM) because both server instances can be
+ * in a handler at once.
+ */
+static esp_err_t log_get_handler(httpd_req_t* req)
+{
+	char* buf;
+	size_t len;
+	esp_err_t ret;
+
+	buf = heap_caps_malloc(LOG_RING_SIZE + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	if (buf == NULL) {
+		return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No memory");
+	}
+
+	len = log_ring_copy(buf, LOG_RING_SIZE + 1);
+
+	httpd_resp_set_type(req, "text/plain; charset=utf-8");
+	httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+	ret = httpd_resp_send(req, buf, len);
+
+	heap_caps_free(buf);
+	return ret;
+}
+
+
 static esp_err_t discover_get_handler(httpd_req_t* req)
 {
 	char entry[224];

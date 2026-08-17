@@ -73,10 +73,6 @@
 // Manual shutter position (FLIR SDK LEP_SYS_SHUTTER_POSITION):
 //   0 = idle (the Lepton's own FFC logic controls the shutter - normal running)
 //   1 = open (held open)  2 = closed (held closed)
-// FFC shutter mode object: 16 words holding the automatic-FFC policy
-// (mode, video freeze, desired period, temp delta, ...)
-#define CCI_CMD_SYS_GET_FFC_SHUTTER_MODE 0x023C
-#define CCI_CMD_SYS_SET_FFC_SHUTTER_MODE 0x023D
 #define CCI_CMD_SYS_GET_SHUTTER_POS 0x0238
 #define CCI_CMD_SYS_SET_SHUTTER_POS 0x0239
 #define CCI_SHUTTER_POS_IDLE   0

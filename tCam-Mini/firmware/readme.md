@@ -22,6 +22,23 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.4
+FW revision 6.4 reverts the FFC policy change and adds a web-visible system log.
+
+1. The 6.3 FFC-cadence write is removed entirely.  In the field it coincided
+with a large radial gradient that survived cold starts and manual FFC alike -
+symptoms of a mis-programmed FFC policy, not of drift.  The write was guarded
+by a layout check, but a guard cannot prove field meanings, so the change is
+withdrawn rather than adjusted.  The Lepton runs on FLIR's own FFC defaults
+again (the setting was volatile - never saved into the sensor - so no camera
+retains it after this update).
+2. The System tab gains a live system log: the same output as the USB serial
+console, captured into a 16KB ring in PSRAM and served at `/api/log`.  Debugging
+no longer requires a cable.
+3. The 1%-outlier clipping in auto-range is now a Display-tab toggle (default
+on, remembered).  Turning it off shows the absolute extremes - necessary when
+validating the sensor rather than reading a scene.
+
 #### FW 6.3
 FW revision 6.3 recalibrates more aggressively against self-heating, and
 reworks the mobile toolbar.
