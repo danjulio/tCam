@@ -4,4 +4,4 @@ file(GLOB SOURCES *.c)
 # component that includes a driver/ header has to ask for it by name.
 idf_component_register(SRCS ${SOURCES}
                        INCLUDE_DIRS . ../../main
-                       REQUIRES driver)
+                       REQUIRES esp_driver_i2c)

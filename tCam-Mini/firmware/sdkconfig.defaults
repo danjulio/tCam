@@ -41,8 +41,11 @@ CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 # The window and send buffer are enlarged because image frames are pushed
 # continuously over a WebSocket.
 CONFIG_LWIP_MAX_SOCKETS=16
-CONFIG_LWIP_TCP_SND_BUF_DEFAULT=11488
-CONFIG_LWIP_TCP_WND_DEFAULT=11488
+# 12 segments (x1440 MSS).  An image frame is ~38KB; a larger send buffer lets
+# more of a frame queue per socket write, cutting stream stalls on lossy links.
+# Memory is allocated on demand per connection, not reserved up front.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=17280
+CONFIG_LWIP_TCP_WND_DEFAULT=17280
 
 # WebSocket support is what carries the image stream to the browser.  The header
 # allowance is raised because browsers send long cookie and client-hint headers

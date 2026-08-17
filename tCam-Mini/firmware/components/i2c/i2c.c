@@ -4,6 +4,11 @@
  * Provides I2C Access routines for other modules/tasks.  Provides a locking mechanism
  * since the underlying ESP IDF routines are not thread safe.
  *
+ * Implemented on the driver/i2c_master API.  The old driver/i2c.h implementation
+ * carried a latent quirk: transfers passed I2C_MODE_MASTER (== 1) where the port
+ * number belongs, which only worked because I2C_MASTER_NUM also happened to be 1.
+ * The new API's bus/device handles make that class of mistake unrepresentable.
+ *
  * Copyright 2020-2022 Dan Julio
  *
  * This file is part of tCam.
@@ -24,15 +29,43 @@
  */
 #include "system_config.h"
 #include "i2c.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+
+
+//
+// I2C constants
+//
+
+// Per-transfer timeout.  The Lepton's CCI can stall briefly during FFC, so this
+// stays generous; the old implementation used the same figure.
+#define I2C_XFER_TIMEOUT_MS 1000
+
+// Distinct peripheral addresses this system talks to (Lepton CCI and, on boards
+// that have one, the DS3232 RTC)
+#define I2C_MAX_DEVICES 4
 
 
 //
 // I2C variables
 //
 static SemaphoreHandle_t i2c_mutex;
+
+static i2c_master_bus_handle_t i2c_bus = NULL;
+
+// The new driver wants one device handle per peripheral address.  Callers hand
+// us raw addresses, so handles are created on first use and cached.
+static i2c_master_dev_handle_t dev_handles[I2C_MAX_DEVICES];
+static uint8_t dev_addrs[I2C_MAX_DEVICES];
+static int dev_count = 0;
+
+
+
+//
+// I2C Forward declarations
+//
+static i2c_master_dev_handle_t get_device(uint8_t addr7);
 
 
 
@@ -45,29 +78,19 @@ static SemaphoreHandle_t i2c_mutex;
  */
 esp_err_t i2c_master_init(int scl_pin, int sda_pin)
 {
-    int i2c_master_port = I2C_MASTER_NUM;
-    i2c_config_t conf;
+    i2c_master_bus_config_t bus_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port = I2C_MASTER_NUM,
+        .scl_io_num = scl_pin,
+        .sda_io_num = sda_pin,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
 
     // Create a mutex for thread safety
     i2c_mutex = xSemaphoreCreateMutex();
 
-    // Configure the I2C controller in master mode using the pins provided
-    conf.mode = I2C_MODE_MASTER;
-    conf.sda_io_num = sda_pin;
-    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.scl_io_num = scl_pin;
-    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
-    conf.clk_flags = 0;
-    esp_err_t err = i2c_param_config(i2c_master_port, &conf);
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    // Install the I2C driver
-    return i2c_driver_install(i2c_master_port, conf.mode,
-                              I2C_MASTER_RX_BUF_LEN,
-                              I2C_MASTER_TX_BUF_LEN, 0);
+    return i2c_new_master_bus(&bus_config, &i2c_bus);
 }
 
 
@@ -90,48 +113,74 @@ void i2c_unlock()
 
 
 /**
- * Read esp-i2c-slave
- *
- * _______________________________________________________________________________________
- * | start | slave_addr + rd_bit +ack | read n-1 bytes + ack | read 1 byte + nack | stop |
- * --------|--------------------------|----------------------|--------------------|------|
- *
+ * Read from a peripheral (address + read, n bytes, stop)
  */
 esp_err_t i2c_master_read_slave(uint8_t addr7, uint8_t *data_rd, size_t size)
 {
+    i2c_master_dev_handle_t dev;
+
     if (size == 0) {
         return ESP_OK;
     }
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (addr7 << 1) | I2C_MASTER_READ, ACK_CHECK_EN);
-    if (size > 1) {
-        i2c_master_read(cmd, data_rd, size - 1, ACK_VAL);
+
+    dev = get_device(addr7);
+    if (dev == NULL) {
+        return ESP_ERR_NO_MEM;
     }
-    i2c_master_read_byte(cmd, data_rd + size - 1, NACK_VAL);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MODE_MASTER, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
+
+    return i2c_master_receive(dev, data_rd, size, I2C_XFER_TIMEOUT_MS);
 }
 
 
 /**
- * Write esp-i2c-slave
- *
- * ___________________________________________________________________
- * | start | slave_addr + wr_bit + ack | write n bytes + ack  | stop |
- * --------|---------------------------|----------------------|------|
- *
+ * Write to a peripheral (address + write, n bytes, stop)
  */
 esp_err_t i2c_master_write_slave(uint8_t addr7, uint8_t *data_wr, size_t size)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (addr7 << 1) | I2C_MASTER_WRITE, ACK_CHECK_EN);
-    i2c_master_write(cmd, data_wr, size, ACK_CHECK_EN);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MODE_MASTER, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    i2c_master_dev_handle_t dev = get_device(addr7);
+
+    if (dev == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    return i2c_master_transmit(dev, data_wr, size, I2C_XFER_TIMEOUT_MS);
+}
+
+
+
+//
+// I2C internal functions
+//
+
+/**
+ * Return (creating and caching on first use) the device handle for an address.
+ * Called with the i2c lock held by convention, like every transfer.
+ */
+static i2c_master_dev_handle_t get_device(uint8_t addr7)
+{
+    esp_err_t ret;
+    int i;
+    i2c_device_config_t dev_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = addr7,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+
+    for (i = 0; i < dev_count; i++) {
+        if (dev_addrs[i] == addr7) {
+            return dev_handles[i];
+        }
+    }
+
+    if (dev_count >= I2C_MAX_DEVICES) {
+        return NULL;
+    }
+
+    ret = i2c_master_bus_add_device(i2c_bus, &dev_config, &dev_handles[dev_count]);
+    if (ret != ESP_OK) {
+        return NULL;
+    }
+
+    dev_addrs[dev_count] = addr7;
+    return dev_handles[dev_count++];
 }

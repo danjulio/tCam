@@ -41,12 +41,9 @@
 // client_if, but simply being able to load the page should not be exclusive.
 #define WIFI_AP_MAX_CONN              4
 
-// Consecutive failed attempts to reach the configured network before the camera
-// raises its own recovery access point (station keeps retrying underneath).
-// Each failed attempt takes several seconds of scanning, so this lands at
-// roughly 45-90 seconds - late enough not to trigger on a router rebooting,
-// and if it does, no harm: the AP dissolves the moment the station connects.
-#define WIFI_FALLBACK_AP_FAILS        12
+// (The old blind-retry fallback counter is gone: the join scan decides.  One
+// scan finding none of the saved networks raises the camera's own AP within
+// seconds of boot, and the periodic rescan below keeps looking underneath.)
 
 // How often the station re-tries the configured network once the recovery AP is
 // up.  Each attempt costs a couple of seconds off-channel, which stutters the

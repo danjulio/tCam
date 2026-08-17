@@ -22,6 +22,31 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.0
+FW revision 6.0 teaches the camera to roam: it remembers up to five WiFi
+networks and joins whichever one it can see.
+
+1. At power-on the camera scans, finds the strongest saved network on the air,
+and joins it - so one camera moves between home, cottage and workshop with no
+reconfiguration.  When none of its networks are visible it broadcasts its own
+hotspot within seconds of boot (previously it retried blind for a minute or
+more first) and keeps scanning every 30 seconds underneath, so carrying it into
+a known house connects automatically.  Joining a network from the UI adds it to
+the saved list; the Network tab lists saved networks with a Forget control.
+A static address, where configured, is stored per network - fixed at home,
+DHCP everywhere else.  Networks that hide their SSID cannot be roamed to (they
+are invisible to the scan); broadcast-SSID networks are required.
+2. Upgrades are seamless: the previously configured network is carried into the
+saved list automatically.  The json protocol gains `forget_wifi`, and `get_wifi`
+now reports the saved list (names only - passwords never leave the camera).
+`set_wifi` behaves as before and additionally saves the network.
+3. The I2C driver is migrated off the legacy API the boot log warned about
+("this is an old driver").  The old code also passed a mode constant where a
+port number belongs - harmless only because both happened to equal 1; the new
+bus/device API makes that mistake unrepresentable.
+4. TCP buffering is raised from 8 to 12 segments per socket, letting more of
+each ~38KB frame queue per write on lossy links.
+
 #### FW 5.6
 FW revision 5.6 fixes the video stream for ESP-IDF v5: the WebSocket session
 was never being claimed.

@@ -50,6 +50,20 @@
 #define PS_PW_MAX_LEN       63
 #define PS_OLD_PW_MAX_LEN   32
 
+// Saved station networks the camera can roam between.  Five covers "home,
+// cottage, workshop" with room to spare while keeping the NVS blob small.
+#define PS_NUM_SAVED_NETS   5
+
+// Per-network flag: use the stored static address instead of DHCP
+#define PS_SAVED_NET_FLAG_STATIC_IP 0x01
+
+typedef struct {
+	char ssid[PS_SSID_MAX_LEN+1];    // empty string = free slot
+	char pw[PS_PW_MAX_LEN+1];
+	uint8_t flags;
+	uint8_t ip_addr[4];              // index 3 holds the first octet
+	uint8_t netmask[4];
+} ps_saved_net_t;
 
 
 //
@@ -63,5 +77,16 @@ void ps_set_net_info(const net_info_t* info);
 bool ps_reinit_net();
 bool ps_has_new_cam_name(const net_info_t* info);
 char ps_nibble_to_ascii(uint8_t n);
+
+/**
+ * Saved station networks.  get copies all PS_NUM_SAVED_NETS entries; set stores
+ * and commits the whole table.  upsert adds a network or updates the entry with
+ * the same ssid (evicting the last slot if the table is full); forget removes by
+ * ssid.  All return through the same committed table.
+ */
+void ps_get_saved_nets(ps_saved_net_t* list);
+void ps_set_saved_nets(const ps_saved_net_t* list);
+bool ps_upsert_saved_net(const ps_saved_net_t* net);
+bool ps_forget_saved_net(const char* ssid);
 
 #endif /* PS_UTILITIES_H */

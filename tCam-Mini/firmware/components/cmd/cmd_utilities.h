@@ -57,7 +57,8 @@
 #define CMD_FW_UPD_REQ  20
 #define CMD_FW_UPD_SEG  21
 #define CMD_DUMP_SCREEN 22
-#define CMD_NUM         23
+#define CMD_FORGET_WIFI 23
+#define CMD_NUM         24
 
 #define CMD_UNKNOWN     999
 
@@ -85,6 +86,7 @@
 #define CMD_FW_UPD_REQ_S  "fw_update_request"
 #define CMD_FW_UPD_SEG_S  "fw_segment"
 #define CMD_DUMP_SCREEN_S "dump_screen"
+#define CMD_FORGET_WIFI_S "forget_wifi"
 
 
 // Delimiters used to wrap json strings sent over the network

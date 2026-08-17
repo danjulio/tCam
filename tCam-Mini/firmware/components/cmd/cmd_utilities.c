@@ -70,6 +70,7 @@ static bool process_set_spotmeter(cJSON* cmd_args);
 static bool process_stream_on(cJSON* cmd_args);
 static bool process_set_time(cJSON* cmd_args);
 static bool process_set_wifi(cJSON* cmd_args);
+static bool process_forget_wifi(cJSON* cmd_args);
 static bool process_get_lep_cci(cJSON* cmd_args);
 static bool process_set_lep_cci(cJSON* cmd_args);
 static bool process_fw_upd_request(cJSON* cmd_args);
@@ -303,6 +304,14 @@ static void process_rx_packet()
 					cci_run_ffc();
 					cmd_success = 1;
 					break;
+
+				case CMD_FORGET_WIFI:
+					if (process_forget_wifi(cmd_args)) {
+						cmd_success = 1;
+					} else {
+						cmd_success = 2;
+					}
+					break;
 				
 				case CMD_GET_LEP_CCI:
 					if (!process_get_lep_cci(cmd_args)) {
@@ -508,13 +517,49 @@ static bool process_set_wifi(cJSON* cmd_args)
 				ESP_LOGE(TAG, "Could not set new mDNS hostname %s (%d)", ap_ssid, ret);
 			}
 		}
-		
+
+		// A join request also lands in the saved-network table, so the camera
+		// can roam back to this network from anywhere without reconfiguration
+		if (sta_ssid[0] != 0) {
+			ps_saved_net_t saved;
+			int i;
+
+			memset(&saved, 0, sizeof(saved));
+			memcpy(saved.ssid, sta_ssid, PS_SSID_MAX_LEN);
+			saved.ssid[PS_SSID_MAX_LEN] = 0;
+			memcpy(saved.pw, sta_pw, PS_PW_MAX_LEN);
+			saved.pw[PS_PW_MAX_LEN] = 0;
+			if ((new_wifi_info.flags & NET_INFO_FLAG_CL_STATIC_IP) != 0) {
+				saved.flags |= PS_SAVED_NET_FLAG_STATIC_IP;
+			}
+			for (i = 0; i < 4; i++) {
+				saved.ip_addr[i] = new_wifi_info.sta_ip_addr[i];
+				saved.netmask[i] = new_wifi_info.sta_netmask[i];
+			}
+			(void) ps_upsert_saved_net(&saved);
+		}
+
 		// Then update persistent storage
 		ps_set_net_info(&new_wifi_info);
 		return true;
 	}
-	
+
 	return false;
+}
+
+
+static bool process_forget_wifi(cJSON* cmd_args)
+{
+	cJSON* item;
+
+	if (cmd_args == NULL) return false;
+
+	item = cJSON_GetObjectItem(cmd_args, "sta_ssid");
+	if ((item == NULL) || !cJSON_IsString(item) || (item->valuestring == NULL)) {
+		return false;
+	}
+
+	return ps_forget_saved_net(item->valuestring);
 }
 
 

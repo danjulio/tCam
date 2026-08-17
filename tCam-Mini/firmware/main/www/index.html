@@ -179,13 +179,13 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     border-bottom:1px solid var(--line)}
 .kv span:first-child{color:var(--dim)}
 .kv span:last-child{font-variant-numeric:tabular-nums;text-align:right;word-break:break-all}
-#nets,#cams{max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
-#nets div,#cams div{padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--line);
+#nets,#cams,#savedNets{max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+#nets div,#cams div,#savedNets div{padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--line);
           display:flex;justify-content:space-between;gap:8px;font-size:13px}
-#nets div:last-child,#cams div:last-child{border-bottom:none}
+#nets div:last-child,#cams div:last-child,#savedNets div:last-child{border-bottom:none}
 #nets div:hover,#cams div:hover{background:rgba(255,255,255,.05)}
 #nets div.sel,#cams div.sel{color:var(--accent);background:var(--accent-soft);cursor:default}
-#nets small,#cams small{color:var(--dim)}
+#nets small,#cams small,#savedNets small{color:var(--dim)}
 #bar{height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;
      margin-top:10px;display:none}
 #bar div{height:100%;width:0;background:var(--accent);transition:width .2s}
@@ -463,6 +463,13 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
     <div class="hint" id="installHint">Installs a home screen icon that opens this camera
       directly, without browser chrome.</div>
 
+    <div class="sect">Saved networks</div>
+    <div class="row" id="savedWrap" style="display:none"><div id="savedNets"></div></div>
+    <div class="hint" id="savedHint">The camera remembers up to five networks. At power-on it
+      scans and joins the strongest one it can see, so it can move between locations without
+      reconfiguration; if none are in range it broadcasts its own hotspot instead, and keeps
+      checking every 30 seconds.</div>
+
     <div class="sect">Join a network</div>
     <div class="row"><button class="btn" id="scanBtn">Scan for networks</button></div>
     <div class="row" id="netsWrap" style="display:none"><div id="nets"></div></div>
@@ -474,7 +481,7 @@ body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
       <label class="lbl">Password</label>
       <input type="password" id="stapw" maxlength="63" autocomplete="off">
     </div>
-    <label class="chk"><input type="checkbox" id="stamode"><span>Join this network at startup</span></label>
+    <label class="chk"><input type="checkbox" id="stamode"><span>Connect to saved networks at startup</span></label>
 
     <label class="chk"><input type="checkbox" id="staticEn"><span>Use a fixed address on that network</span></label>
     <div class="row" id="staticBox" style="display:none">
@@ -1034,6 +1041,29 @@ function applyWifi(w){
     $("staticEn").checked=!!(netFlags & 0x10);
     $("staticBox").style.display=(netFlags & 0x10)?"block":"none";
   }
+  if(w.saved) renderSavedNets(w.saved);
+}
+
+function renderSavedNets(list){
+  var box=$("savedNets");
+  box.innerHTML="";
+  list.forEach(function(n){
+    var el=document.createElement("div");
+    el.innerHTML="<span>"+n.ssid.replace(/[<>&]/g,"")+(n["static"]?" \u00b7 fixed address":"")+
+                 "</span><small style=\"cursor:pointer;color:var(--err)\">Forget</small>";
+    el.style.cursor="default";
+    el.lastChild.onclick=function(ev){
+      ev.stopPropagation();
+      if(confirm("Forget \""+n.ssid+"\"? The camera will no longer join it automatically.")){
+        send("forget_wifi",{sta_ssid:n.ssid});
+        toast("Forgot "+n.ssid,"ok");
+        setTimeout(function(){ send("get_wifi"); },500);
+      }
+    };
+    box.appendChild(el);
+  });
+  $("savedWrap").style.display=list.length?"block":"none";
+  $("savedHint").style.display=list.length?"none":"block";
 }
 
 function setStream(on){
