@@ -8,12 +8,21 @@ This fork modernizes the **tCam-Mini firmware** into a fully self-contained inst
 2. Power the camera.  It joins a saved WiFi network, or broadcasts its own `tCam-Mini-XXXX` hotspot.
 3. Connect and browse to **http://192.168.58.1/** (hotspot) or **http://tcam-mini.local** (your network).  That's the whole app.
 
+![tCam web viewer](tCam-Mini/firmware/pictures/web_ui_main.png)
+
+| | |
+|---|---|
+| ![Settings panel](tCam-Mini/firmware/pictures/web_ui_settings_display.png) | ![Phone view](tCam-Mini/firmware/pictures/web_ui_mobile.png) |
+| *Instrument-dense settings; the ⓘ button reveals help text.* | *Full toolbar and readouts on a phone.* |
+
+More interface detail and screenshots: [WEB_UI.md](tCam-Mini/firmware/WEB_UI.md)
+
 ### What changed vs. the original firmware
 
-| | Original (FW 3.x) | This fork (FW 6.9) |
+| | Original (FW 3.x) | This fork (FW 6.14) |
 |---|---|---|
-| Viewer | Desktop/mobile app required | Any browser; add-to-home-screen web app |
-| Streaming | json over TCP :5001 | Same, **plus** compact binary WebSocket to the browser; up to 4 viewers at once |
+| Viewer | Desktop/mobile app required | Any browser — nothing to install; up to 4 viewers at once |
+| Streaming | json over TCP :5001 | Same, **plus** compact binary WebSocket to the browser |
 | UI | — | Dark instrument UI: palettes, 640×480 upscale, isotherm, spot/probe, °C/°F |
 | Recording | Desktop app | In-browser video + PNG, optional burned-in overlay |
 | WiFi | One configured SSID | **Roams**: 5 saved networks, joins strongest in sight |
