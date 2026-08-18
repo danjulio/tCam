@@ -39,11 +39,6 @@ Full engineering history: [tCam-Mini/firmware/readme.md](tCam-Mini/firmware/read
 
 Also fixed along the way: command-parser buffer overruns, interrupt-driven Lepton vsync (was a busy-wait), event-driven response task, a display-string overflow, and a latent I2C port-number bug.  Upstream merge requests welcome — the work splits cleanly into fixes, platform port, and features.
 
-### tCam
-tCam is a full featured, battery powered camera with a local touchscreen display, local storage and a WiFi interface.  It is comprised of a [gCore]() and tCam-Mini.  A tCam kit can be purchased from Group Gets [here](https://store.groupgets.com/products/tcam-kit).
-
-![tCam](tCam/pictures/tcam_iron.png)
-
 ### tCam-Mini
 tCam-Mini is a smaller camera designed for streaming and remote access.  It supports a Wifi or hardwired interface.  It can be built using development boards or a tested unit can be purchased from Group Gets [with built in antenna](https://store.groupgets.com/products/tcam-mini-rev4-wireless-streaming-thermal-camera-board) or [with an external antenna](https://store.groupgets.com/products/tcam-mini-rev4-external-antenna-wireless-streaming-thermal-camera-board).
 
