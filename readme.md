@@ -43,4 +43,5 @@ Also fixed along the way: command-parser buffer overruns, interrupt-driven Lepto
 tCam-Mini is a smaller camera designed for streaming and remote access.  It supports a Wifi or hardwired interface.  It can be built using development boards or a tested unit can be purchased from Group Gets [with built in antenna](https://store.groupgets.com/products/tcam-mini-rev4-wireless-streaming-thermal-camera-board) or [with an external antenna](https://store.groupgets.com/products/tcam-mini-rev4-external-antenna-wireless-streaming-thermal-camera-board).
 
 ![tCam-Mini](pictures/tcam_mini.png)
+
 (Photo Credit: Matthew Navarro)
