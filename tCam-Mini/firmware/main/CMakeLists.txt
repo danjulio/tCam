@@ -1,5 +1,5 @@
-set(SOURCES main.c client_if.c ctrl_task.c dns_hijack.c lep_task.c log_ring.c mon_task.c
-            net_cmd_task.c rsp_task.c sif_cmd_task.c web_cmd.c web_task.c)
+set(SOURCES main.c ble_beacon.c client_if.c ctrl_task.c dns_hijack.c lep_task.c log_ring.c
+            mon_task.c net_cmd_task.c rsp_task.c sif_cmd_task.c web_cmd.c web_task.c)
 
 # Compress the web UI and draw the app icons before they are embedded.
 # index.html is the source of truth and is the only one of these under version
@@ -44,7 +44,7 @@ endif()
 
 idf_component_register(SRCS ${SOURCES}
                     INCLUDE_DIRS .
-                    REQUIRES clock cmd i2c lepton sys app_update esp_http_server
+                    REQUIRES clock cmd i2c lepton sys app_update bt esp_http_server
                              esp_wifi esp_netif esp_timer nvs_flash mdns driver
                     EMBED_FILES "${WEB_GEN_DIR}/index.html.gz"
                                 "${WEB_GEN_DIR}/icon-192.png"

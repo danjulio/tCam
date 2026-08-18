@@ -22,6 +22,32 @@ To monitor diagnostic information from the firmware: ```idf.py -p PORT```.  Outp
 
 ### Revision History
 
+#### FW 6.15
+FW revision 6.15 adds the Bluetooth LE finder beacon, pairing with the hosted
+tCam Finder page (docs/ at the repository root).
+
+1. The problem: a browser shortcut freezes the camera's IP address, and a
+roaming camera's address changes between locations - the saved shortcut then
+opens a dead address where nothing of ours runs, and with plain http there is
+no service worker that could intercept and rediscover.  The fix follows the
+pattern of the stormcatcher project: a static HTTPS-hosted page (GitHub
+Pages) whose address never changes, which asks the camera itself for its
+current address over Web Bluetooth and then navigates to it.  All camera
+traffic stays on the LAN; there is no backend and no account.
+2. Firmware side: a NimBLE peripheral (main/ble_beacon.c) advertises a
+custom finder service and answers a single characteristic read with
+{"name","ip","mode"}, rebuilt on every read so it always reports the
+current address.  Smallest possible footprint: BLE-only controller,
+peripheral role only, one connection, classic-BT memory released at startup,
+~300 ms advertising interval so the shared radio favors the image stream.
+Startup logs the internal-heap cost.  Failure to start is logged and
+non-fatal.
+3. The finder page (docs/index.html) remembers every camera it has found in
+its own localStorage - the page's origin is stable, so unlike the camera's
+own pages this memory survives address changes - and offers one-tap open of
+last-known addresses, quiet background refresh of previously-granted
+cameras, and a .local fallback for Apple devices (no Web Bluetooth there).
+
 #### FW 6.14
 FW revision 6.14 removes the "Install as an app" button and prompt.
 

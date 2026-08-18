@@ -24,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "ble_beacon.h"
 #include "client_if.h"
 #include "net_cmd_task.h"
 #include "sif_cmd_task.h"
@@ -107,6 +108,10 @@ void app_main(void)
     	// Serves the on-camera UI.  Runs at a low priority so that neither the
     	// lepton VoSPI transfer nor the response path can be starved by a browser.
     	xTaskCreatePinnedToCore(&web_task, "web_task",  4096, NULL, 1, &task_handle_web,  0);
+
+    	// BLE beacon so the hosted finder page can ask the camera for its
+    	// current address.  Failure is logged inside; the camera runs without it.
+    	ble_beacon_init();
     }
 
 #ifdef INCLUDE_SYS_MON

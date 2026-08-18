@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07090d">
+<title>tCam Finder</title>
+<style>
+:root{--bg:#07090d;--panel:#12161d;--line:rgba(255,255,255,.09);--fg:#eef2f7;
+      --dim:#7e8b9c;--accent:#ff7a1a;--accent-soft:rgba(255,122,26,.14);
+      --ok:#2fd067;--err:#f85149}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+     min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 18px 60px}
+main{width:100%;max-width:460px}
+h1{font-size:22px;font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:10px}
+h1 svg{width:26px;height:26px;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round}
+.sub{color:var(--dim);font-size:13px;margin:6px 0 26px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.sect{font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:var(--dim);margin:0 0 10px}
+.btn{display:block;width:100%;background:var(--accent);border:none;border-radius:10px;color:#12060a;
+     padding:13px 14px;font:inherit;font-weight:700;cursor:pointer;text-align:center;text-decoration:none}
+.btn.sec{background:rgba(255,255,255,.05);color:var(--fg);border:1px solid var(--line);font-weight:550}
+.btn:disabled{opacity:.4;cursor:default}
+.hint{font-size:12px;color:var(--dim);margin-top:10px;line-height:1.5}
+#cams .cam{display:flex;align-items:center;gap:10px;padding:11px 4px;border-bottom:1px solid var(--line)}
+#cams .cam:last-child{border-bottom:none}
+#cams .cam .nm{font-weight:650}
+#cams .cam small{display:block;color:var(--dim);font-variant-numeric:tabular-nums}
+#cams .cam .go{margin-left:auto;flex:none;background:var(--accent-soft);color:var(--accent);
+     border:none;border-radius:9px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}
+#cams .cam .x{flex:none;background:none;border:none;color:var(--dim);font-size:16px;cursor:pointer;padding:6px}
+#status{font-size:13px;margin-top:12px;min-height:20px}
+#status.ok{color:var(--ok)} #status.err{color:var(--err)}
+.foot{color:var(--dim);font-size:11.5px;margin-top:26px;text-align:center}
+.foot a{color:var(--dim)}
+</style>
+</head>
+<body>
+<main>
+  <h1><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      tCam Finder</h1>
+  <div class="sub">Finds your tCam-Mini on whatever network it joined and opens its
+    interface. The camera's address can change between locations — this page never does,
+    so save <b>this</b> page to your home screen.</div>
+
+  <div class="card" id="btCard">
+    <div class="sect">Find by Bluetooth</div>
+    <button class="btn" id="btFind">Find my camera</button>
+    <div id="status"></div>
+    <div class="hint">The camera broadcasts its identity over Bluetooth LE. Pick it from
+      the list, and this page reads the address it holds <i>right now</i> and opens it —
+      no matter which network it roamed to. Works in Chrome and Edge; stand within
+      Bluetooth range of the camera.</div>
+  </div>
+
+  <div class="card" id="knownCard" style="display:none">
+    <div class="sect">Your cameras</div>
+    <div id="cams"></div>
+    <div class="hint">Last known addresses, remembered by this page. If one has moved,
+      use <b>Find my camera</b> to refresh it.</div>
+  </div>
+
+  <div class="card">
+    <div class="sect">Other ways in</div>
+    <a class="btn sec" id="localLink" href="http://tcam-mini.local/">Open tcam-mini.local</a>
+    <div class="hint"><b>iPhone / iPad / Mac / Windows:</b> the <i>.local</i> name follows
+      the camera between networks (no Bluetooth needed). Android does not resolve
+      <i>.local</i> — use the Bluetooth finder above instead.
+      <br><br><b>Hotspot:</b> if the camera can't find WiFi it broadcasts its own network,
+      <b>tCam-Mini-XXXX</b>. Join it and the camera is always at
+      <a href="http://192.168.58.1/" style="color:var(--accent)">192.168.58.1</a>.</div>
+  </div>
+
+  <div class="foot">tCam-Mini · <a href="https://github.com/McGeaverBeaver/tCam">firmware &amp; docs</a>
+    · your camera list is stored only in this browser</div>
+</main>
+
+<script>
+"use strict";
+(function(){
+
+// The contract with the camera firmware (main/ble_beacon.c)
+var SVC="7ca2c9c0-9d3a-4b2e-8e5d-52f1b74a0c1d";
+var CHR="7ca2c9c1-9d3a-4b2e-8e5d-52f1b74a0c1d";
+
+function $(id){ return document.getElementById(id); }
+function status(msg, cls){ var s=$("status"); s.textContent=msg; s.className=cls||""; }
+
+function loadCams(){
+  try{ return JSON.parse(localStorage.getItem("tcamFinder")||"{}"); }catch(e){ return {}; }
+}
+function saveCams(c){ try{ localStorage.setItem("tcamFinder",JSON.stringify(c)); }catch(e){} }
+
+function renderCams(){
+  var cams=loadCams(), box=$("cams"), names=Object.keys(cams);
+  box.innerHTML="";
+  names.sort(function(a,b){ return (cams[b].t||0)-(cams[a].t||0); });
+  names.forEach(function(n){
+    var c=cams[n];
+    var el=document.createElement("div");
+    el.className="cam";
+    var when=c.t?new Date(c.t).toLocaleDateString():"";
+    el.innerHTML='<div><div class="nm"></div><small>'+c.ip+(when?" · seen "+when:"")+'</small></div>'+
+                 '<a class="go" href="http://'+c.ip+'/">Open</a>'+
+                 '<button class="x" title="Forget">×</button>';
+    el.querySelector(".nm").textContent=n;
+    el.querySelector(".x").onclick=function(){
+      var cs=loadCams(); delete cs[n]; saveCams(cs); renderCams();
+    };
+    box.appendChild(el);
+  });
+  $("knownCard").style.display=names.length?"block":"none";
+  // Point the .local link at the most recently seen camera's name
+  if(names.length){
+    $("localLink").href="http://"+names[0].toLowerCase()+".local/";
+    $("localLink").textContent="Open "+names[0].toLowerCase()+".local";
+  }
+}
+
+function remember(info){
+  var cams=loadCams();
+  cams[info.name]={ip:info.ip,t:Date.now()};
+  saveCams(cams);
+  renderCams();
+}
+
+function openCamera(info){
+  if(info.mode==="ap"){
+    status("Found "+info.name+" — it is in hotspot mode. Join its WiFi network ("+
+           info.name+"), then it opens at 192.168.58.1.","err");
+    remember({name:info.name,ip:"192.168.58.1"});
+    return;
+  }
+  remember(info);
+  status("Found "+info.name+" at "+info.ip+" — opening…","ok");
+  setTimeout(function(){ location.href="http://"+info.ip+"/"; },600);
+}
+
+async function readCamera(device){
+  var server=await device.gatt.connect();
+  try{
+    var svc=await server.getPrimaryService(SVC);
+    var chr=await svc.getCharacteristic(CHR);
+    var v=await chr.readValue();
+    return JSON.parse(new TextDecoder().decode(v));
+  } finally {
+    try{ device.gatt.disconnect(); }catch(e){}
+  }
+}
+
+$("btFind").onclick=async function(){
+  if(!navigator.bluetooth){
+    status("This browser has no Web Bluetooth. Use Chrome or Edge — or the .local link below on Apple devices.","err");
+    return;
+  }
+  var b=this;
+  b.disabled=true;
+  try{
+    status("Choose your camera in the picker…");
+    var device=await navigator.bluetooth.requestDevice({filters:[{services:[SVC]}]});
+    status("Asking "+(device.name||"the camera")+" for its address…");
+    openCamera(await readCamera(device));
+  }catch(e){
+    status(e.name==="NotFoundError" ? "No camera chosen." : "Could not reach the camera: "+e.message, "err");
+  }
+  b.disabled=false;
+};
+
+// Quiet refresh: if this browser has previously been granted a camera, ask it
+// for its current address in the background so the remembered list is fresh.
+(async function(){
+  try{
+    if(navigator.bluetooth && navigator.bluetooth.getDevices){
+      var devs=await navigator.bluetooth.getDevices();
+      for(var i=0;i<devs.length;i++){
+        try{ remember(await readCamera(devs[i])); }catch(e){}
+      }
+    }
+  }catch(e){}
+})();
+
+renderCams();
+})();
+</script>
+</body>
+</html>

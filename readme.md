@@ -30,6 +30,7 @@ More interface detail and screenshots: [WEB_UI.md](tCam-Mini/firmware/WEB_UI.md)
 | Setup | App/serial | Captive portal: connect to hotspot, page opens itself |
 | Firmware update | Serial / desktop app | Drag a .bin into the browser (safe A/B partitions) |
 | Discovery | — | mDNS: `tcam-mini.local` + in-app camera finder |
+| Find it after it moves | Re-discover by hand | **tCam Finder** page ([docs/](docs/)): Bluetooth LE asks the camera for its current address and opens it |
 | Diagnostics | Serial cable | System log in the browser (Settings → System) |
 | Sensor protection | — | Shutter parks over detector 10 s after last viewer leaves (sun protection) |
 | Platform | ESP-IDF 4.4.4 (EOL 2024) | ESP-IDF 5.5, current drivers throughout |

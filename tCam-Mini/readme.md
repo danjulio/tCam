@@ -101,6 +101,8 @@ As a client, the camera remembers up to **five networks** and at power-on joins 
 
 Up to **four browsers may view and control the camera at once**.  The json socket interface on port 5001 remains single-client, and holds the camera exclusively while a desktop-app session is open.
 
+**Finding a camera whose address changed** (FW 6.15+): the camera advertises a small Bluetooth LE beacon carrying its current address, and the hosted **tCam Finder** page ([docs/ at the repository root](../docs/)) reads it over Web Bluetooth and opens the camera's interface — a browser shortcut that keeps working across locations, with no cloud backend.  Apple devices (no Web Bluetooth) use the `.local` name instead, which mDNS keeps current.
+
 #### WiFi Reset Button
 Pressing and holding the WiFi Reset Button for more than five seconds resets the WiFi interface back to the default AP (hotspot) mode.  The status indicator blinks fast yellow while the reset occurs.
 

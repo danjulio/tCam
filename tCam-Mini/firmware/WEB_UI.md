@@ -45,6 +45,16 @@ and joins the strongest one it can see, so one camera moves between locations
 with no reconfiguration. Saved networks are listed on the Network tab (with a
 Forget button each), and each may carry its own fixed IP address.
 
+**Finding the camera after it moves (the tCam Finder).**  A saved browser
+shortcut freezes an IP address, and a roaming camera's address changes between
+locations.  The fix is the **tCam Finder** — a static page (docs/ at the
+repository root, hosted on GitHub Pages or any HTTPS host) whose address never
+changes.  It asks the camera itself for its current address over Bluetooth LE
+(the camera advertises a small finder service from FW 6.15) and opens the
+interface at whatever IP it holds right now.  The page remembers every camera
+it has found for one-tap reopening.  Chrome/Edge only (Web Bluetooth); Apple
+devices use `http://<camera-name>.local` instead, which mDNS keeps current.
+
 **Recovery access point.**  If no saved network is in sight for about ten seconds,
 the camera raises its own access point *while continuing to rescan every 30
 seconds underneath*. Join `tCam-Mini-XXXX`, the captive portal opens, and you can

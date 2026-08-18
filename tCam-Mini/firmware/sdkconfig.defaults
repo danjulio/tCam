@@ -55,6 +55,20 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
 CONFIG_HTTPD_MAX_URI_LEN=512
 CONFIG_HTTPD_ERR_RESP_NO_DELAY=y
 
+# Bluetooth LE finder beacon (see main/ble_beacon.c).  NimBLE peripheral-only,
+# BLE-only controller, one connection: the smallest stack that lets the hosted
+# finder page ask the camera for its current address over Web Bluetooth.
+# Central/observer roles are compiled out - the camera never scans or connects
+# outward - and the classic-BT controller memory is released at startup.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_MAX_BONDS=1
+CONFIG_BT_NIMBLE_MAX_CCCDS=1
+
 # Task watchdog on both idle tasks - a starved core is a bug worth a reset
 CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
