@@ -62,6 +62,9 @@ static net_info_t eth_info = {
 
 // Interface
 static eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+// IDF 5 split the ESP32-specific EMAC settings (the SMI pins among them) out of
+// the generic MAC config into their own structure
+static eth_esp32_emac_config_t emac_config = ETH_ESP32_EMAC_DEFAULT_CONFIG();
 static eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
 static esp_eth_config_t eth_config;
 
@@ -117,9 +120,9 @@ bool eth_init()
 	}
 	
 	// Setup the Ethernet MAC
-	mac_config.smi_mdc_gpio_num = BRD_E_ETH_MDC;
-	mac_config.smi_mdio_gpio_num = BRD_E_ETH_MDIO;
-	mac = esp_eth_mac_new_esp32(&mac_config);
+	emac_config.smi_gpio.mdc_num = BRD_E_ETH_MDC;
+	emac_config.smi_gpio.mdio_num = BRD_E_ETH_MDIO;
+	mac = esp_eth_mac_new_esp32(&emac_config, &mac_config);
 	
 	// Setup the Ethernet PHY
 	phy_config.phy_addr = ETH_PHY_ADDRESS;

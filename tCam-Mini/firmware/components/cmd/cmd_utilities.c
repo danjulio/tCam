@@ -70,6 +70,8 @@ static bool process_set_spotmeter(cJSON* cmd_args);
 static bool process_stream_on(cJSON* cmd_args);
 static bool process_set_time(cJSON* cmd_args);
 static bool process_set_wifi(cJSON* cmd_args);
+static bool process_forget_wifi(cJSON* cmd_args);
+static bool process_set_shutter(cJSON* cmd_args);
 static bool process_get_lep_cci(cJSON* cmd_args);
 static bool process_set_lep_cci(cJSON* cmd_args);
 static bool process_fw_upd_request(cJSON* cmd_args);
@@ -93,10 +95,38 @@ void init_command_processor()
 
 
 /**
+ * Return the number of unprocessed bytes held in the circular buffer
+ */
+static int rx_buffer_used()
+{
+	int used = rx_circular_push_index - rx_circular_pop_index;
+
+	if (used < 0) used += JSON_MAX_CMD_TEXT_LEN;
+
+	return used;
+}
+
+
+/**
  * Push received data into our circular buffer
+ *
+ * Note: One byte is always left unused so that a full buffer can be distinguished
+ * from an empty one (push == pop means empty).  Data that would overrun the buffer
+ * is discarded and the buffer is flushed rather than silently overwriting bytes the
+ * parser has not consumed yet - a partial command is better dropped outright than
+ * spliced into the middle of the following one.
  */
 void push_rx_data(char* data, int len)
-{	
+{
+	if (len <= 0) return;
+
+	// Discard rather than corrupt if this write cannot fit
+	if (len > (JSON_MAX_CMD_TEXT_LEN - 1 - rx_buffer_used())) {
+		ESP_LOGE(TAG, "rx buffer overflow (%d bytes); flushing", len);
+		init_command_processor();
+		return;
+	}
+
 	// Push the received data into the circular buffer
 	while (len-- > 0) {
 		rx_circular_buffer[rx_circular_push_index] = *data++;
@@ -125,21 +155,29 @@ bool process_rx_data() {
 				if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN) rx_circular_pop_index = 0;
 			}
 			
-			// Copy up to end
+			// Copy up to end, reserving the final byte of json_cmd_string for the
+			// null terminator so that an over-long packet cannot write past the end
+			// of the buffer
 			i = 0;
-			while ((rx_circular_pop_index != end) && (i < JSON_MAX_CMD_TEXT_LEN)) {
-				if (i < JSON_MAX_CMD_TEXT_LEN) {
-					json_cmd_string[i] = rx_circular_buffer[rx_circular_pop_index];
-				}
+			while ((rx_circular_pop_index != end) && (i < (JSON_MAX_CMD_TEXT_LEN - 1))) {
+				json_cmd_string[i] = rx_circular_buffer[rx_circular_pop_index];
 				i++;
 				if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN) rx_circular_pop_index = 0;
 			}
 			json_cmd_string[i] = 0;               // Make sure this is a null-terminated string
-			
-			// Skip past end
-			if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN) rx_circular_pop_index = 0;
-			
-			if (i < JSON_MAX_CMD_TEXT_LEN+1) {
+
+			// Discard any remainder of an over-long packet up to its terminator
+			if (rx_circular_pop_index != end) {
+				ESP_LOGE(TAG, "command exceeded %d bytes; discarding", JSON_MAX_CMD_TEXT_LEN - 1);
+				while (rx_circular_pop_index != end) {
+					if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN) rx_circular_pop_index = 0;
+				}
+				// Skip past end
+				if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN) rx_circular_pop_index = 0;
+			} else {
+				// Skip past end
+				if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN) rx_circular_pop_index = 0;
+
 				// Process json command string
 				process_rx_packet();
 				valid_string = true;
@@ -264,8 +302,29 @@ static void process_rx_packet()
 					break;
 				
 				case CMD_RUN_FFC:
-					cci_run_ffc();
+					// A parked shutter means FFC is also the "reopen" gesture
+					if (lepton_shutter_parked()) {
+						lepton_shutter_unpark();   // includes an FFC
+					} else {
+						cci_run_ffc();
+					}
 					cmd_success = 1;
+					break;
+
+				case CMD_SET_SHUTTER:
+					if (process_set_shutter(cmd_args)) {
+						cmd_success = 1;
+					} else {
+						cmd_success = 2;
+					}
+					break;
+
+				case CMD_FORGET_WIFI:
+					if (process_forget_wifi(cmd_args)) {
+						cmd_success = 1;
+					} else {
+						cmd_success = 2;
+					}
 					break;
 				
 				case CMD_GET_LEP_CCI:
@@ -472,13 +531,67 @@ static bool process_set_wifi(cJSON* cmd_args)
 				ESP_LOGE(TAG, "Could not set new mDNS hostname %s (%d)", ap_ssid, ret);
 			}
 		}
-		
+
+		// A join request also lands in the saved-network table, so the camera
+		// can roam back to this network from anywhere without reconfiguration
+		if (sta_ssid[0] != 0) {
+			ps_saved_net_t saved;
+			int i;
+
+			memset(&saved, 0, sizeof(saved));
+			memcpy(saved.ssid, sta_ssid, PS_SSID_MAX_LEN);
+			saved.ssid[PS_SSID_MAX_LEN] = 0;
+			memcpy(saved.pw, sta_pw, PS_PW_MAX_LEN);
+			saved.pw[PS_PW_MAX_LEN] = 0;
+			if ((new_wifi_info.flags & NET_INFO_FLAG_CL_STATIC_IP) != 0) {
+				saved.flags |= PS_SAVED_NET_FLAG_STATIC_IP;
+			}
+			for (i = 0; i < 4; i++) {
+				saved.ip_addr[i] = new_wifi_info.sta_ip_addr[i];
+				saved.netmask[i] = new_wifi_info.sta_netmask[i];
+			}
+			(void) ps_upsert_saved_net(&saved);
+		}
+
 		// Then update persistent storage
 		ps_set_net_info(&new_wifi_info);
 		return true;
 	}
-	
+
 	return false;
+}
+
+
+static bool process_set_shutter(cJSON* cmd_args)
+{
+	cJSON* item;
+
+	if (cmd_args == NULL) return false;
+
+	item = cJSON_GetObjectItem(cmd_args, "park");
+	if ((item == NULL) || !cJSON_IsNumber(item)) return false;
+
+	if (item->valueint != 0) {
+		lepton_shutter_park();
+	} else {
+		lepton_shutter_unpark();
+	}
+	return true;
+}
+
+
+static bool process_forget_wifi(cJSON* cmd_args)
+{
+	cJSON* item;
+
+	if (cmd_args == NULL) return false;
+
+	item = cJSON_GetObjectItem(cmd_args, "sta_ssid");
+	if ((item == NULL) || !cJSON_IsString(item) || (item->valuestring == NULL)) {
+		return false;
+	}
+
+	return ps_forget_saved_net(item->valuestring);
 }
 
 
@@ -577,11 +690,12 @@ static int in_buffer(char c)
 	while (i != rx_circular_push_index) {
 		if (c == rx_circular_buffer[i]) {
 			return i;
-		} else {
-			if (i++ >= JSON_MAX_CMD_TEXT_LEN) i = 0;
 		}
+		// Pre-increment: a post-increment test here wraps one index too late and
+		// reads rx_circular_buffer[JSON_MAX_CMD_TEXT_LEN], one byte past the end
+		if (++i >= JSON_MAX_CMD_TEXT_LEN) i = 0;
 	}
-	
+
 	return -1;
 }
 

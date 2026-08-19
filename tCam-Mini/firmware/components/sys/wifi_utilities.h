@@ -35,6 +35,23 @@
 // Maximum attempts to reconnect to an AP in client mode before starting to wait
 #define WIFI_FAST_RECONNECT_ATTEMPTS  10
 
+// Stations allowed to associate with the camera's SoftAP.  This was 1, which meant
+// a phone already on the camera silently locked everyone else out - including the
+// operator's laptop.  Command sessions are still arbitrated to one at a time by
+// client_if, but simply being able to load the page should not be exclusive.
+#define WIFI_AP_MAX_CONN              4
+
+// (The old blind-retry fallback counter is gone: the join scan decides.  One
+// scan finding none of the saved networks raises the camera's own AP within
+// seconds of boot, and the periodic rescan below keeps looking underneath.)
+
+// How often the station re-tries the configured network once the recovery AP is
+// up.  Each attempt costs a couple of seconds off-channel, which stutters the
+// AP anyone is using to fix the configuration - retrying back-to-back made the
+// recovery AP barely usable in exactly the situation it exists for.  Thirty
+// seconds keeps the auto-rejoin promise while leaving the radio alone.
+#define WIFI_FALLBACK_RETRY_MSEC      30000
+
 
 //
 // WiFi Utilities API
@@ -43,5 +60,28 @@ bool wifi_init();
 bool wifi_reinit();
 bool wifi_is_connected();
 net_info_t* wifi_get_info();
+
+/**
+ * True when the WiFi interface is acting as an access point rather than as a
+ * station on someone else's network.
+ */
+bool wifi_is_ap_mode();
+
+/**
+ * True while the recovery access point is up because the configured network is
+ * unreachable.  The camera behaves as an AP (captive portal, AP address) even
+ * though its stored configuration says station mode.
+ */
+bool wifi_is_fallback_active();
+
+/**
+ * Bracket a network scan.  esp_wifi_scan_start() is refused while the station is
+ * mid-connect, and a station whose configured network is unreachable is mid-
+ * connect nearly all the time - so the scan endpoint returned nothing in exactly
+ * the situation where the user needs the network list.  prepare() aborts any
+ * connect attempt in flight and holds reconnects off; complete() re-arms them.
+ */
+void wifi_scan_prepare();
+void wifi_scan_complete();
 
 #endif /* WIFI_UTILITIES_H */

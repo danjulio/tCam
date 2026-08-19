@@ -62,6 +62,7 @@ TaskHandle_t task_handle_cmd;
 TaskHandle_t task_handle_ctrl;
 TaskHandle_t task_handle_lep;
 TaskHandle_t task_handle_rsp;
+TaskHandle_t task_handle_web;
 #ifdef INCLUDE_SYS_MON
 TaskHandle_t task_handle_mon;
 #endif
@@ -100,8 +101,8 @@ static spi_slave_transaction_t spi_slave_t;
 // Forward declarations for internal functions
 //
 static esp_err_t _sys_spi_slave_init();
-static void IRAM_ATTR _sys_spi_slave_post_setup_cb();
-static void IRAM_ATTR _sys_spi_slave_post_trans_cb();
+static void _sys_spi_slave_post_setup_cb();
+static void _sys_spi_slave_post_trans_cb();
 
 
 //
@@ -219,7 +220,7 @@ bool system_peripheral_init(int brd_type, int if_mode)
 /**
  * Allocate shared buffers for use by tasks for image data in the external RAM
  */
-bool system_buffer_init()
+bool system_buffer_init(int if_mode)
 {
 	ESP_LOGI(TAG, "Buffer Allocation");
 	
@@ -286,8 +287,13 @@ bool system_buffer_init()
 	sys_cmd_response_buffer.popP = sys_cmd_response_buffer.bufferP;
 	sys_cmd_response_buffer.length = 0;
 	
-	// Allocate the json image text buffer in DMA capable internal memory           
-	sys_image_rsp_buffer.bufferP = heap_caps_malloc(JSON_MAX_IMAGE_TEXT_LEN, MALLOC_CAP_DMA);
+	// Allocate the json image text buffer.  Only the SPI slave (SIF) interface
+	// DMAs directly out of this buffer, and DMA-capable means internal - a 53 KB
+	// bite out of an internal heap that also has to hold every task stack and
+	// socket buffer in the system.  On the network interfaces the buffer is only
+	// ever read by the CPU on its way into a socket, so it lives in PSRAM there.
+	sys_image_rsp_buffer.bufferP = heap_caps_malloc(JSON_MAX_IMAGE_TEXT_LEN,
+			(if_mode == CTRL_IF_MODE_SIF) ? MALLOC_CAP_DMA : MALLOC_CAP_SPIRAM);
 	if (sys_image_rsp_buffer.bufferP == NULL) {
 		ESP_LOGE(TAG, "malloc shared json image text response buffer failed");
 		return false;

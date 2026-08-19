@@ -29,20 +29,6 @@
 #include "esp_system.h"
 
 //
-// I2C constants
-//
-
-// Slave buffer size (not used)
-#define I2C_MASTER_TX_BUF_LEN 0
-#define I2C_MASTER_RX_BUF_LEN 0
-
-#define ACK_CHECK_EN 0x1
-#define ACK_CHECK_DIS 0x0
-#define ACK_VAL 0x0
-#define NACK_VAL 0x1 
-
-
-//
 // I2C API
 //
 esp_err_t i2c_master_init(int scl_pin, int sda_pin);

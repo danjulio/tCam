@@ -27,6 +27,7 @@
 #include "ctrl_task.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -63,6 +64,17 @@ static const char* TAG = "lep_task";
 static int lep_brd_type;
 static int lep_if_type;
 
+// Handle used by the vsync ISR to wake the task
+static TaskHandle_t lep_task_handle = NULL;
+
+
+
+//
+// LEP Task Forward Declarations for internal functions
+//
+static void vsync_isr(void* arg);
+static bool wait_for_vsync();
+
 
 
 //
@@ -80,6 +92,7 @@ void lep_task()
 	int task_state = STATE_INIT;
 	int rsp_buf_index = 0;
 	int vsync_count = 0;
+	int vsync_timeout_count = 0;
 	int sync_fail_count = 0;
 	int reset_fail_count = 0;
 	int64_t vsyncDetectedUsec;
@@ -108,6 +121,15 @@ void lep_task()
 		vTaskDelete(NULL);
 	}
 
+	// Arm a rising-edge interrupt on vsync.  The ISR wakes this task with a
+	// notification, so between frames the task is blocked rather than spinning
+	// on the GPIO at high priority - which used to consume an entire core and,
+	// when the sensor was absent, starve the idle task into the watchdog.
+	lep_task_handle = xTaskGetCurrentTaskHandle();
+	gpio_install_isr_service(0);
+	gpio_set_intr_type((gpio_num_t) lep_vsync_pin, GPIO_INTR_POSEDGE);
+	gpio_isr_handler_add((gpio_num_t) lep_vsync_pin, vsync_isr, NULL);
+
 	while (true) {
 		switch (task_state) {
 			case STATE_INIT:  // After power-on reset
@@ -124,10 +146,20 @@ void lep_task()
 				break;
 			
 			case STATE_RUN:   // Initialized and running
-				// Spin waiting for vsync to be asserted
-				while (gpio_get_level((gpio_num_t) lep_vsync_pin) == 0) {
-//					vTaskDelay(pdMS_TO_TICKS(9));
+				// Block until the vsync ISR signals a frame edge (or time out if
+				// the line never asserts) - see wait_for_vsync()
+				if (!wait_for_vsync()) {
+					if (++vsync_timeout_count >= LEP_VSYNC_TIMEOUT_FAULT_LIMIT) {
+						vsync_timeout_count = LEP_VSYNC_TIMEOUT_FAULT_LIMIT;
+						ESP_LOGE(TAG, "No vsync from Lepton - check that the sensor is seated");
+						ctrl_set_fault_type(CTRL_FAULT_LEP_VOSPI);
+					}
+					// Yield so the rest of the system keeps running and the failure
+					// is reportable rather than taking the whole camera down
+					vTaskDelay(pdMS_TO_TICKS(100));
+					break;
 				}
+				vsync_timeout_count = 0;
 				vsyncDetectedUsec = esp_timer_get_time();
 				
 				// Attempt to process a segment
@@ -167,7 +199,12 @@ void lep_task()
 					// a FFC since that takes a long time.
 					if (++vsync_count == 36) {
 						vsync_count = 0;
-						ESP_LOGI(TAG, "Could not get lepton image");
+						// Expected in bursts: the Lepton stalls its video pipeline
+						// during a flat field correction (the periodic shutter
+						// click), and sync is re-established per the datasheet.
+						// Only a burst that never ends indicates a real problem,
+						// and that case escalates to a fault below.
+						ESP_LOGI(TAG, "Resynchronizing with Lepton (normal during FFC)");
 						
 						// Pause to allow resynchronization
 						// (Lepton 3.5 data sheet section 4.2.3.3.1 "Establishing/Re-Establishing Sync")
@@ -240,4 +277,43 @@ void lep_task()
 				task_state = STATE_RE_INIT;
 		}
 	}
+}
+
+
+//
+// LEP Task internal functions
+//
+
+/**
+ * Wake the lepton task on a vsync rising edge
+ */
+static void IRAM_ATTR vsync_isr(void* arg)
+{
+	BaseType_t higher_prio_woken = pdFALSE;
+
+	vTaskNotifyGiveFromISR(lep_task_handle, &higher_prio_woken);
+	portYIELD_FROM_ISR(higher_prio_woken);
+}
+
+
+/**
+ * Block until the next vsync rising edge, or until LEP_VSYNC_TIMEOUT_USEC elapses.
+ * Returns true if vsync was seen.
+ *
+ * Edges that occurred while the task was busy (transferring the previous segment,
+ * or sleeping after a completed frame) are drained first so this waits for the
+ * NEXT edge, matching the level-poll semantics of the original code.  The VoSPI
+ * resynchronization logic tolerates the few microseconds of ISR-to-task latency -
+ * it already hunts for the start of valid segment data on every transfer.
+ *
+ * A camera whose vsync line never asserts (an unseated sensor, a broken trace, a
+ * Lepton left in the wrong GPIO mode) simply times out here, with the task blocked
+ * rather than spinning, and the caller raises a fault the user can act on.
+ */
+static bool wait_for_vsync()
+{
+	// Discard edges that arrived while we were away
+	(void) ulTaskNotifyTake(pdTRUE, 0);
+
+	return (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(LEP_VSYNC_TIMEOUT_USEC / 1000)) != 0);
 }

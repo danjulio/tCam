@@ -41,7 +41,9 @@
 #include "system_config.h"
 #include "vospi.h"
 #include "mbedtls/base64.h"
+#include "esp_mac.h"
 #include "esp_system.h"
+#include "esp_app_desc.h"
 #include "esp_ota_ops.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -86,7 +88,9 @@ const cmd_name_t command_list[CMD_NUM] = {
 	{CMD_SET_LEP_CCI_S, CMD_SET_LEP_CCI},
 	{CMD_FW_UPD_REQ_S, CMD_FW_UPD_REQ},
 	{CMD_FW_UPD_SEG_S, CMD_FW_UPD_SEG},
-	{CMD_DUMP_SCREEN_S, CMD_DUMP_SCREEN}
+	{CMD_DUMP_SCREEN_S, CMD_DUMP_SCREEN},
+	{CMD_FORGET_WIFI_S, CMD_FORGET_WIFI},
+	{CMD_SET_SHUTTER_S, CMD_SET_SHUTTER}
 };
 
 
@@ -268,7 +272,7 @@ char* json_get_status(uint32_t* len)
 	tmElements_t te;
 	
 	// Get system information
-	app_desc = esp_ota_get_app_description();	
+	app_desc = esp_app_get_description();	
 	time_get(&te);
 	
 	// Create and add to the metadata object
@@ -385,10 +389,30 @@ char* json_get_wifi(uint32_t* len)
 			                          net_infoP->cur_ip_addr[1],
 			                          net_infoP->cur_ip_addr[0]);
 	cJSON_AddStringToObject(wifi, "cur_ip_addr", ip_string);
-	
+
+	// The saved roaming networks, names and per-network flags only - passwords
+	// never leave the camera
+	{
+		static ps_saved_net_t saved[PS_NUM_SAVED_NETS];
+		cJSON* arr;
+		cJSON* entry;
+		int i;
+
+		ps_get_saved_nets(saved);
+		cJSON_AddItemToObject(wifi, "saved", arr = cJSON_CreateArray());
+		for (i = 0; i < PS_NUM_SAVED_NETS; i++) {
+			if (saved[i].ssid[0] == 0) continue;
+			entry = cJSON_CreateObject();
+			cJSON_AddStringToObject(entry, "ssid", saved[i].ssid);
+			cJSON_AddNumberToObject(entry, "static",
+				(saved[i].flags & PS_SAVED_NET_FLAG_STATIC_IP) ? 1 : 0);
+			cJSON_AddItemToArray(arr, entry);
+		}
+	}
+
 	// Tightly print the object into our buffer with delimitors
 	*len = json_generate_response_string(root, json_response_text);
-	
+
 	cJSON_Delete(root);
 	
 	return json_response_text;
@@ -1167,7 +1191,7 @@ static bool json_add_metadata_object(cJSON* parent)
 	
 	// Get system information
 	ctrl_get_if_mode(&brd_type, &if_type);
-	app_desc = esp_ota_get_app_description();
+	app_desc = esp_app_get_description();
 	time_get(&te);
 	
 	// Create and add to the metadata object

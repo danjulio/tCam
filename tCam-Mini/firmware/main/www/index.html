@@ -1,0 +1,1893 @@
+<!doctype html>
+<!--
+  tCam-Mini on-camera user interface
+
+  Served directly from the camera's flash.  Everything here runs in the browser:
+  the camera ships raw 16-bit radiometric frames and this page does the palette
+  mapping, interpolation, scaling and measurement.  That keeps the firmware side
+  small and means adding a palette, a readout or a higher rendering resolution
+  costs no camera resources at all.
+
+  Design notes: the thermal stream owns the whole viewport; every control lives in
+  floating glass surfaces over it or in a slide-over panel, so nothing competes
+  with the image.  All colors come from the custom-property block below.
+
+  Copyright 2020-2022 Dan Julio
+  Licensed under the GNU General Public License v3 - see LICENSE in the repository.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#07090d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="tCam">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='1'%20x2='0'%20y2='0'%3E%3Cstop%20offset='0'%20stop-color='%233b1163'/%3E%3Cstop%20offset='.45'%20stop-color='%23c33b1e'/%3E%3Cstop%20offset='.8'%20stop-color='%23ff7a1a'/%3E%3Cstop%20offset='1'%20stop-color='%23ffd23c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width='16'%20height='16'%20rx='4'%20fill='url(%23g)'/%3E%3C/svg%3E">
+<title>tCam-Mini</title>
+<style>
+:root{
+  --bg:#07090d;
+  --glass:rgba(16,20,28,.78);
+  --glass-brt:rgba(255,255,255,.06);
+  --line:rgba(255,255,255,.09);
+  --line-brt:rgba(255,255,255,.18);
+  --fg:#eef2f7;
+  --dim:#7e8b9c;
+  --accent:#ff7a1a;
+  --accent-soft:rgba(255,122,26,.14);
+  --cool:#39c4ff;
+  --hot:#ff5252;
+  --ok:#2fd067;
+  --warn:#e8b93c;
+  --err:#ff4d4a;
+  --r-lg:16px; --r-md:12px; --r-sm:8px;
+  --shadow:0 12px 40px rgba(0,0,0,.55);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden}
+body{
+  background:var(--bg); color:var(--fg);
+  font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+
+/* ============================== stage ============================== */
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+       background:radial-gradient(120% 90% at 50% 40%, #0c1017 0%, var(--bg) 70%)}
+#canwrap{position:relative;touch-action:none;line-height:0}
+canvas{display:block;image-rendering:pixelated;border-radius:10px;
+       box-shadow:0 0 0 1px var(--line), var(--shadow)}
+canvas.smooth{image-rendering:auto}
+canvas.mirror{transform:scaleX(-1)}
+canvas.flipv{transform:scaleY(-1)}
+canvas.mirror.flipv{transform:scale(-1,-1)}
+#marks{position:absolute;inset:0;pointer-events:none;overflow:visible}
+
+/* ============================== chrome ============================== */
+.glass{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-md);
+       backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+
+#topbar{position:fixed;top:12px;left:12px;right:12px;display:flex;align-items:center;
+        gap:12px;padding:8px 8px 8px 14px;z-index:20}
+#dot{width:8px;height:8px;border-radius:50%;background:var(--err);flex:none;
+     box-shadow:0 0 8px 1px rgba(248,81,73,.6);transition:.3s}
+#dot.on{background:var(--ok);box-shadow:0 0 8px 1px rgba(47,208,103,.6)}
+#dot.busy{background:var(--warn);box-shadow:0 0 8px 1px rgba(232,185,60,.6)}
+#idblock{min-width:0}
+#camname{font-size:14px;font-weight:650;letter-spacing:.2px;white-space:nowrap;
+         overflow:hidden;text-overflow:ellipsis}
+#substate{font-size:11px;color:var(--dim);white-space:nowrap}
+.spacer{flex:1}
+#fps{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* signal strength + connected clients */
+#netinfo{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);
+         font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default}
+#netinfo .sep{width:1px;height:12px;background:var(--line);margin:0 2px}
+#sigIcon{width:17px;height:14px;flex:none}
+/* bars are painted dim, then lit up to the current strength */
+#sigIcon .b{fill:var(--line-brt)}
+#sigIcon.s1 .b:nth-child(1),
+#sigIcon.s2 .b:nth-child(-n+2),
+#sigIcon.s3 .b:nth-child(-n+3),
+#sigIcon.s4 .b:nth-child(-n+4){fill:var(--sig)}
+#netinfo.weak{--sig:var(--err)}
+#netinfo.fair{--sig:var(--warn)}
+#netinfo.good{--sig:var(--ok)}
+#netinfo{--sig:var(--dim)}
+.usericon{width:15px;height:13px;flex:none;fill:none;stroke:currentColor;
+          stroke-width:1.6;stroke-linecap:round}
+
+.tbtn{width:38px;height:38px;border:none;border-radius:10px;background:transparent;
+      color:var(--fg);cursor:pointer;display:inline-flex;align-items:center;
+      justify-content:center;flex:none;transition:background .15s,color .15s}
+.tbtn:hover{background:var(--glass-brt)}
+.tbtn.active{background:var(--accent-soft);color:var(--accent)}
+.tbtn svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;
+          stroke-linecap:round;stroke-linejoin:round}
+
+/* readout chips */
+#chips{position:fixed;left:12px;bottom:12px;display:flex;gap:8px;z-index:15;
+       flex-wrap:wrap;max-width:calc(100vw - 96px)}
+.chip{padding:7px 12px;border-radius:var(--r-md)}
+.chip b{display:block;font-size:9.5px;color:var(--dim);font-weight:650;
+        letter-spacing:.8px;text-transform:uppercase}
+.chip span{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.chip.spot span{color:var(--accent)}
+.chip.max span{color:var(--hot)}
+.chip.min span{color:var(--cool)}
+
+/* vertical range scale */
+#scalebar{position:fixed;right:12px;top:50%;transform:translateY(-50%);z-index:15;
+          display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 8px;
+          cursor:pointer}
+body.noscale #scalebar{display:none}
+#sMid{position:absolute;top:50%;right:calc(100% + 5px);transform:translateY(-50%);
+      opacity:.8;background:var(--glass);border:1px solid var(--line);
+      border-radius:6px;padding:1px 6px;white-space:nowrap}
+#scalegrad{width:10px;height:min(38vh,260px);border-radius:5px;border:1px solid var(--line)}
+#scalebar output{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums;
+                 writing-mode:horizontal-tb}
+#sHi{color:var(--fg)}
+
+/* ============================== panel ============================== */
+#panel{position:fixed;top:0;right:0;bottom:0;width:min(380px,100vw);z-index:30;
+       display:flex;flex-direction:column;border-radius:0;border-width:0 0 0 1px;
+       transform:translateX(105%);transition:transform .28s cubic-bezier(.32,.72,.28,1)}
+#panel.open{transform:none}
+#panelhead{display:flex;align-items:center;gap:6px;padding:12px 10px 10px 18px;flex:none}
+#panelhead h2{margin:0;font-size:15px;font-weight:650;flex:1}
+#tabs{display:flex;gap:4px;padding:0 14px;flex:none}
+#tabs button{flex:1;background:none;border:none;border-radius:9px;color:var(--dim);
+  padding:9px 2px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;
+  transition:background .15s,color .15s}
+#tabs button.sel{color:var(--accent);background:var(--accent-soft)}
+.tab{display:none;padding:16px 18px 28px;overflow-y:auto;flex:1;
+     -webkit-overflow-scrolling:touch}
+.tab.sel{display:block}
+
+.sect{font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;
+      color:var(--dim);margin:16px 0 9px}
+.sect:first-child{margin-top:2px}
+.row{margin-bottom:10px}
+label.lbl{display:block;font-size:12px;color:var(--dim);margin-bottom:6px}
+select,input[type=text],input[type=password],input[type=number]{
+  width:100%;background:rgba(255,255,255,.05);color:var(--fg);
+  border:1px solid var(--line);border-radius:10px;padding:10px 11px;font:inherit;
+  outline:none;transition:border-color .15s}
+select:focus,input:focus{border-color:var(--accent)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btn{background:rgba(255,255,255,.05);color:var(--fg);border:1px solid var(--line);
+     border-radius:10px;padding:11px 12px;font:inherit;font-weight:550;cursor:pointer;
+     width:100%;transition:border-color .15s,color .15s,background .15s}
+.btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#12060a;font-weight:650}
+.btn.pri:hover:not(:disabled){color:#12060a;filter:brightness(1.07)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg{display:flex;background:rgba(255,255,255,.05);border:1px solid var(--line);
+     border-radius:10px;padding:3px;gap:3px}
+.seg button{flex:1;border:none;background:none;color:var(--dim);border-radius:8px;
+            padding:8px 4px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+.seg button.sel{background:var(--accent);color:#12060a}
+.chk{display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer}
+.chk input{width:17px;height:17px;accent-color:var(--accent);flex:none}
+/* Explanatory text is progressive disclosure: hidden until the (i) button in
+   the panel header turns it on, so the working surface stays instrument-dense.
+   .stay marks the exceptions that are feedback rather than documentation (the
+   install button writes its instructions into its hint; the saved-networks
+   hint doubles as that list's empty state). */
+.hint{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.5;display:none}
+body.showhelp .hint,.hint.stay{display:block}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:6px 0;font-size:13px;
+    border-bottom:1px solid var(--line)}
+.kv span:first-child{color:var(--dim)}
+.kv span:last-child{font-variant-numeric:tabular-nums;text-align:right;word-break:break-all}
+#nets,#cams,#savedNets{max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+#nets div,#cams div,#savedNets div{padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--line);
+          display:flex;justify-content:space-between;gap:8px;font-size:13px}
+#nets div:last-child,#cams div:last-child,#savedNets div:last-child{border-bottom:none}
+#nets div:hover,#cams div:hover{background:rgba(255,255,255,.05)}
+#nets div.sel,#cams div.sel{color:var(--accent);background:var(--accent-soft);cursor:default}
+#nets small,#cams small,#savedNets small{color:var(--dim)}
+#bar{height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;
+     margin-top:10px;display:none}
+#bar div{height:100%;width:0;background:var(--accent);transition:width .2s}
+
+/* chrome auto-hide (fullscreen): only the menu bar retreats - the temperature
+   readouts and scale stay up, floating over the image like a real imager's HUD */
+#topbar{transition:opacity .3s,transform .3s}
+body.hidechrome #topbar{opacity:0;transform:translateY(-10px);pointer-events:none}
+
+/* recording state */
+#recChip{display:none;align-items:center;gap:7px;padding:6px 11px;border-radius:9px;
+         font-size:12px;font-weight:650;font-variant-numeric:tabular-nums;color:#ffb9b6;
+         border:1px solid var(--err)}
+body.rec #recChip{display:flex}
+#recChip i{width:8px;height:8px;border-radius:50%;background:var(--err);
+           animation:recpulse 1.2s ease-in-out infinite}
+@keyframes recpulse{0%,100%{opacity:1}50%{opacity:.25}}
+body.rec #bRec{background:rgba(255,77,74,.15);color:var(--err)}
+
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(90px);
+  padding:11px 18px;font-size:13px;opacity:0;transition:.28s;pointer-events:none;
+  max-width:88vw;z-index:60;border-radius:var(--r-md)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:var(--err);color:#ffb9b6}
+#toast.ok{border-color:var(--ok)}
+
+@media (max-width:700px){
+  #panel{width:100vw;border-width:1px 0 0 0}
+  .chip span{font-size:14px}
+  .chip{padding:6px 10px}
+  /* compact top bar: sized for a ~412 CSS px phone in portrait.  Every ACTION
+     stays reachable - only passive text (fps readout, status line) yields. */
+  #fps,#substate{display:none}
+  #netinfo .sep,#netinfo .usericon,#cliTxt,#sigTxt{display:none}
+  #topbar{top:8px;left:8px;right:8px;gap:4px;padding:6px 6px 6px 10px}
+  #idblock{min-width:0;flex:0 1 auto}
+  #camname{font-size:13px;max-width:18vw}
+  .tbtn{width:32px;height:32px;border-radius:8px;flex:none}
+  .tbtn svg{width:17px;height:17px}
+  /* the scale bar stays visible on phones, just slimmer */
+  #scalebar{right:8px;padding:8px 6px}
+  #scalegrad{height:min(32vh,200px);width:8px}
+}
+#logBox{max-height:280px;overflow:auto;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;
+  background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:10px;padding:10px;
+  white-space:pre-wrap;word-break:break-all;margin:0 0 6px 0}
+#escBar{position:fixed;top:0;left:0;right:0;z-index:99;display:flex;align-items:center;
+  gap:10px;padding:10px 14px;background:var(--accent);color:#0b0e13;font-size:13px;font-weight:600}
+#escBar button{border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}
+#escBar .go{background:#0b0e13;color:#fff}
+#escBar .x{background:transparent;color:#0b0e13;font-size:16px;padding:6px 8px}
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="canwrap">
+    <canvas id="cv" width="160" height="120"></canvas>
+    <svg id="marks"></svg>
+  </div>
+</div>
+
+<header id="topbar" class="glass">
+  <div id="dot"></div>
+  <div id="idblock">
+    <div id="camname">tCam-Mini</div>
+    <div id="substate">connecting&hellip;</div>
+  </div>
+  <div class="spacer"></div>
+  <div id="netinfo" title="">
+    <svg id="sigIcon" viewBox="0 0 20 16" aria-hidden="true">
+      <rect class="b" x="1"  y="11" width="3" height="4"  rx="1"/>
+      <rect class="b" x="6"  y="8"  width="3" height="7"  rx="1"/>
+      <rect class="b" x="11" y="5"  width="3" height="10" rx="1"/>
+      <rect class="b" x="16" y="1"  width="3" height="14" rx="1"/>
+    </svg>
+    <span id="sigTxt">&mdash;</span>
+    <span class="sep"></span>
+    <svg viewBox="0 0 20 16" aria-hidden="true" class="usericon">
+      <circle cx="10" cy="5" r="3.2"/><path d="M4 15c0-3.3 2.7-5.2 6-5.2s6 1.9 6 5.2"/>
+    </svg>
+    <span id="cliTxt">&mdash;</span>
+  </div>
+  <div id="fps">&mdash;</div>
+  <div id="recChip"><i></i><span id="recTime">0:00</span></div>
+  <button class="tbtn active" id="bScale" title="Show / hide temperature scale (T)">
+    <svg viewBox="0 0 24 24"><path d="M10 4a2 2 0 0 1 4 0v9.3a4.5 4.5 0 1 1-4 0z"/><line x1="12" y1="8" x2="12" y2="15.5"/></svg>
+  </button>
+  <button class="tbtn active" id="bLayers" title="Include data overlay in captures (O)">
+    <svg viewBox="0 0 24 24"><path d="M12 4l8 4.5-8 4.5-8-4.5z"/><path d="M4 13l8 4.5 8-4.5"/></svg>
+  </button>
+  <button class="tbtn" id="bRec" title="Record video (R)">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>
+  </button>
+  <button class="tbtn" id="bShot" title="Save PNG">
+    <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg>
+  </button>
+  <button class="tbtn" id="bFfc" title="Run flat field correction">
+    <svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3.2"/></svg>
+  </button>
+  <button class="tbtn" id="bPark" title="Park shutter (protect sensor)">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l5.7 5.7M12 12L6.3 17.7"/></svg>
+  </button>
+  <button class="tbtn" id="bFull" title="Fullscreen">
+    <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  </button>
+  <button class="tbtn" id="bPanel" title="Settings">
+    <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="1.9" fill="var(--bg)"/><circle cx="15" cy="12" r="1.9" fill="var(--bg)"/><circle cx="7" cy="17" r="1.9" fill="var(--bg)"/></svg>
+  </button>
+</header>
+
+<div id="chips">
+  <div class="chip glass spot"><b>Spot</b><span id="rSpot">--</span></div>
+  <div class="chip glass max"><b>Max</b><span id="rMax">--</span></div>
+  <div class="chip glass min"><b>Min</b><span id="rMin">--</span></div>
+  <div class="chip glass" id="probeChip" style="display:none"><b>Probe</b><span id="rProbe">--</span></div>
+</div>
+
+<div id="scalebar" class="glass" title="Tap to hide the temperature scale">
+  <output id="sHi">--</output>
+  <output id="sMid">--</output>
+  <div id="scalegrad"></div>
+  <output id="sLo">--</output>
+</div>
+
+<aside id="panel" class="glass">
+  <div id="panelhead">
+    <h2>Settings</h2>
+    <button class="tbtn" id="bHelp" title="Show explanations">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 11.2v5"/><path d="M12 7.7v.2"/></svg>
+    </button>
+    <button class="tbtn" id="bClose" title="Close">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <nav id="tabs">
+    <button data-t="view" class="sel">Display</button>
+    <button data-t="cam">Camera</button>
+    <button data-t="net">Network</button>
+    <button data-t="sys">System</button>
+  </nav>
+
+  <!-- DISPLAY -->
+  <div class="tab sel" id="t-view">
+    <div class="sect">Image</div>
+    <div class="row grid2" style="align-items:center">
+      <select id="pal"></select>
+      <div class="seg" id="segUnits">
+        <button data-u="C" class="sel">&deg;C</button>
+        <button data-u="F">&deg;F</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="seg" id="segRes">
+        <button data-s="1">160&times;120</button>
+        <button data-s="2" class="sel">320&times;240</button>
+        <button data-s="4">640&times;480</button>
+      </div>
+      <div class="hint">The sensor is 160&times;120; higher settings interpolate the thermal
+        data bilinearly before coloring, like the desktop application. Saved PNGs use the
+        selected resolution.</div>
+    </div>
+    <label class="chk"><input type="checkbox" id="oSmooth"><span>Smooth display scaling</span></label>
+    <label class="chk"><input type="checkbox" id="oMirror"><span>Mirror horizontally</span></label>
+    <label class="chk"><input type="checkbox" id="oFlip"><span>Flip vertically</span></label>
+
+    <div class="sect">Temperature range</div>
+    <label class="chk"><input type="checkbox" id="auto" checked><span>Auto range</span></label>
+    <label class="chk"><input type="checkbox" id="clipEn" checked><span>Ignore hottest/coldest 1% when auto-ranging</span></label>
+    <div class="grid2" id="manual" style="display:none">
+      <input type="number" id="rlo" placeholder="min °" step="0.5">
+      <input type="number" id="rhi" placeholder="max °" step="0.5">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="lockRange">Lock current range</button>
+      <div class="hint">Auto range tracks the scene, smoothed to avoid flicker. Locking copies
+        the current span into manual limits — useful to watch one thing heat up.</div>
+    </div>
+
+    <div class="sect">Measurement</div>
+    <div class="row">
+      <div class="seg" id="segCur">
+        <button data-m="probe" class="sel">Probe</button>
+        <button data-m="spot">Move spot</button>
+      </div>
+      <div class="hint">Probe reads the tapped pixel on this screen only. Move spot repositions
+        the camera's own spot meter, which is measured by the sensor itself.</div>
+    </div>
+    <label class="chk"><input type="checkbox" id="oSpot" checked><span>Show spot marker</span></label>
+    <label class="chk"><input type="checkbox" id="oMinMax" checked><span>Show hot / cold markers</span></label>
+    <label class="chk"><input type="checkbox" id="isoEn"><span>Isotherm: highlight above a threshold</span></label>
+    <div class="row">
+      <input type="number" id="isoT" placeholder="threshold &deg;" step="1">
+      <div class="hint">Pixels at or above the threshold are painted in a fixed alarm color
+        regardless of palette — the fastest way to see "anything hotter than X" at a glance.</div>
+    </div>
+  </div>
+
+  <!-- CAMERA -->
+  <div class="tab" id="t-cam">
+    <div class="sect">Stream</div>
+    <div class="row">
+      <label class="lbl">Frame interval &mdash; <span id="fiLbl">as fast as possible</span></label>
+      <input type="range" id="fi" min="0" max="2000" step="50" value="0">
+      <div class="hint">Every frame is about 53&nbsp;KB. Slowing the interval is the most
+        effective way to keep a marginal WiFi link stable.</div>
+    </div>
+
+    <div class="sect">Sensor</div>
+    <div class="row">
+      <label class="lbl">Gain mode</label>
+      <select id="gain">
+        <option value="0">High (&minus;10 to 140 &deg;C)</option>
+        <option value="1">Low (&minus;10 to 450 &deg;C)</option>
+        <option value="2">Auto</option>
+      </select>
+    </div>
+    <div class="row">
+      <label class="lbl">Emissivity &mdash; <span id="emLbl">100%</span></label>
+      <input type="range" id="em" min="1" max="100" step="1" value="100">
+      <div class="hint">Polished metal is nearer 10&ndash;30%; painted or organic surfaces
+        nearer 90&ndash;98%.</div>
+    </div>
+    <label class="chk"><input type="checkbox" id="agc"><span>AGC (display contrast mode)</span></label>
+    <div class="hint">AGC gives a higher-contrast picture but pixels stop being temperatures,
+      so all readouts pause while it is on.</div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn pri" id="applyCam">Apply sensor settings</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="ffcBtn">Run flat field correction</button>
+      <button class="btn" id="parkBtn">Park shutter</button>
+      <div class="hint">Parking closes the Lepton's internal shutter over the detector —
+        protection for a camera left powered and unattended, such as one pointing out a
+        window, since focused sun is the one thing that reliably damages a microbolometer.
+        The image goes flat while parked; reconnecting or running FFC reopens it. The
+        camera also parks itself after 10 seconds with no viewer connected.
+        <br><br><b>Parking does not survive a power cut.</b> The shutter is held closed
+        electrically by the Lepton itself, so it springs back open the instant power is
+        removed — there is no firmware anywhere that can hold it. For storage, put a cap
+        over the aperture. Note also that the shutter sits <i>behind</i> the lens, so it
+        never protects the lens itself from dust or scratches.</div>
+    </div>
+
+    <div class="sect">Telemetry</div>
+    <div class="kv"><span>FPA temperature</span><span id="tFpa">--</span></div>
+    <div class="kv"><span>Housing temperature</span><span id="tHouse">--</span></div>
+    <div class="kv"><span>Effective gain</span><span id="tGain">--</span></div>
+    <div class="kv"><span>Emissivity</span><span id="tEmis">--</span></div>
+    <div class="kv"><span>Radiometry (T-Linear)</span><span id="tTlin">--</span></div>
+    <div class="kv"><span>T-Linear resolution</span><span id="tRes">--</span></div>
+    <div class="kv"><span>Spot mean</span><span id="tSpot">--</span></div>
+    <div class="kv"><span>Frames received</span><span id="tFrames">0</span></div>
+
+    <div class="sect">Capture</div>
+    <label class="chk"><input type="checkbox" id="ovCap" checked><span>Burn data overlay into captures</span></label>
+    <div class="grid2">
+      <button class="btn" id="snapPng">Save PNG</button>
+      <button class="btn" id="snapRaw">Save raw</button>
+    </div>
+    <div class="hint">The overlay burns the camera name, timestamp, readouts, scale and
+      markers into screenshots and recordings; the layers button in the top bar (or the
+      O key) toggles it any time, even mid-recording. Raw saves the camera's own json
+      frame (.tjsn), the same format the desktop application writes, so existing analysis
+      tools read it.</div>
+    <div class="hint" style="margin-top:8px">Recordings and screenshots save to <b>this
+      device's</b> Downloads folder — the camera has no storage of its own. A recording is
+      written when you press stop; closing the tab mid-recording discards it. Note the
+      "sign in to network" popup browser cannot save downloads — for recording, open the
+      camera's address in your normal browser instead.</div>
+  </div>
+
+  <!-- NETWORK -->
+  <div class="tab" id="t-net">
+    <div class="sect">Camera identity</div>
+    <div class="row">
+      <label class="lbl">Camera name</label>
+      <input type="text" id="apssid" maxlength="32">
+      <div class="hint">Also the access point name and the mDNS hostname.</div>
+    </div>
+
+    <div class="sect">Cameras on this network</div>
+    <div class="row"><button class="btn" id="findBtn">Find other cameras</button></div>
+    <div class="row" id="camsWrap" style="display:none"><div id="cams"></div></div>
+    <div class="hint">The camera asks the network over mDNS — nothing is scanned or
+      contacted until you press the button, so it costs the live stream nothing.
+      Selecting a camera opens its interface.</div>
+
+    <div class="sect">Saved networks</div>
+    <div class="row" id="savedWrap" style="display:none"><div id="savedNets"></div></div>
+    <div class="hint stay" id="savedHint">The camera remembers up to five networks. At power-on it
+      scans and joins the strongest one it can see, so it can move between locations without
+      reconfiguration; if none are in range it broadcasts its own hotspot instead, and keeps
+      checking every 30 seconds.</div>
+
+    <div class="sect">Join a network</div>
+    <div class="row"><button class="btn" id="scanBtn">Scan for networks</button></div>
+    <div class="row" id="netsWrap" style="display:none"><div id="nets"></div></div>
+    <div class="row">
+      <label class="lbl">Network name</label>
+      <input type="text" id="stassid" maxlength="32" autocomplete="off">
+    </div>
+    <div class="row">
+      <label class="lbl">Password</label>
+      <input type="password" id="stapw" maxlength="63" autocomplete="off">
+    </div>
+    <label class="chk"><input type="checkbox" id="stamode"><span>Connect to saved networks at startup</span></label>
+
+    <label class="chk"><input type="checkbox" id="staticEn"><span>Use a fixed address on that network</span></label>
+    <div class="row" id="staticBox" style="display:none">
+      <div class="grid2">
+        <input type="text" id="staip" placeholder="192.168.4.50" autocomplete="off">
+        <input type="text" id="stamask" placeholder="255.255.255.0" autocomplete="off">
+      </div>
+      <div class="hint">A fixed address keeps bookmarks and home-screen shortcuts working —
+        they open whatever address they were saved from, so a camera whose address moves has
+        to be found again. Pick something outside your router's DHCP pool. (A DHCP
+        reservation in the router achieves the same thing.)</div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="btn pri" id="applyNet">Save and restart networking</button>
+    </div>
+
+    <div class="sect">Hotspot mode</div>
+    <div class="row">
+      <button class="btn" id="apModeBtn">Switch to hotspot mode</button>
+      <div class="hint">Stops joining your network and makes the camera broadcast
+        <b id="apname">its own</b> WiFi again, reachable at <b id="apaddr">192.168.58.1</b>.
+        Use this before moving the camera somewhere else.
+        <br><br>Three other ways back, if this page is ever unreachable: the camera raises its
+        own hotspot automatically after about a minute of failing to find its network; holding
+        the button on the board for five seconds resets networking to hotspot mode; and while
+        on your network it is also reachable at <b id="mdnsname">tcam-mini.local</b>.</div>
+    </div>
+  </div>
+
+  <!-- SYSTEM -->
+  <div class="tab" id="t-sys">
+    <div class="sect">Camera</div>
+    <div class="kv"><span>Model</span><span id="iModel">--</span></div>
+    <div class="kv"><span>Firmware</span><span id="iVer">--</span></div>
+    <div class="kv"><span>Sensor</span><span id="iLep">--</span></div>
+    <div class="kv"><span>Interface</span><span id="iIf">--</span></div>
+    <div class="kv"><span>Address</span><span id="iIp">--</span></div>
+
+    <div class="sect">Link</div>
+    <div class="kv"><span>Signal</span><span id="iRssi">--</span></div>
+    <div class="kv"><span>Devices on camera AP</span><span id="iStations">--</span></div>
+    <div class="kv"><span>Open connections</span><span id="iConns">--</span></div>
+    <div class="kv"><span>Stream held by</span><span id="iSession">--</span></div>
+    <div class="kv"><span>Free internal memory</span><span id="iHeap">--</span></div>
+    <div class="hint">In access point mode the signal shown is the strongest connected
+      device — usually whichever one is closest. In station mode it is the camera's own
+      link to your network; below about &minus;75&nbsp;dBm, raise the frame interval on
+      the Camera tab.</div>
+
+    <div class="sect">Firmware update</div>
+    <input type="file" id="fw" accept=".bin" style="display:none">
+    <div class="row"><button class="btn" id="fwBtn">Choose firmware .bin&hellip;</button></div>
+    <div id="bar"><div></div></div>
+    <div class="hint">The camera writes to the spare partition and only switches to it once the
+      whole image is received and verified — an interrupted update leaves the current firmware
+      running.</div>
+
+    <div class="sect">Clock</div>
+    <div class="row"><button class="btn" id="setTime">Set camera clock from this device</button></div>
+
+    <div class="sect">System log</div>
+    <div class="row"><button class="btn" id="logBtn">View system log</button></div>
+    <div class="row" id="logWrap" style="display:none">
+      <pre id="logBox"></pre>
+      <div class="hint">The same output as the USB serial console, kept in memory on the
+        camera. Refreshes every 3 seconds while open.</div>
+    </div>
+  </div>
+</aside>
+
+<div id="toast" class="glass"></div>
+
+<script>
+"use strict";
+(function(){
+
+/* ============================== constants ============================== */
+var W=160, H=120, NPIX=W*H;
+
+var PALETTES = {
+  "Ironbow":[[0,0,0,0],[.2,40,0,90],[.4,140,20,110],[.6,220,80,50],[.8,255,180,20],[1,255,255,235]],
+  "White hot":[[0,0,0,0],[1,255,255,255]],
+  "Black hot":[[0,255,255,255],[1,0,0,0]],
+  "Rainbow":[[0,0,0,60],[.2,0,80,220],[.4,0,200,190],[.6,120,220,60],[.8,255,190,0],[1,255,40,20]],
+  "Arctic":[[0,0,0,40],[.35,20,90,160],[.6,120,180,220],[.8,235,235,235],[1,255,220,120]],
+  "Lava":[[0,10,0,20],[.3,120,0,60],[.6,230,60,20],[.85,255,180,40],[1,255,255,200]],
+  "Viridis":[[0,68,1,84],[.25,59,82,139],[.5,33,145,140],[.75,94,201,98],[1,253,231,37]],
+  "Hot metal":[[0,0,0,0],[.25,110,0,0],[.5,220,60,0],[.75,255,175,0],[1,255,255,255]]
+};
+
+/* ============================== state ============================== */
+var ws=null, wsOK=false, reconnectTimer=null, reconnectDelay=2000;
+var cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+var lut=new Uint8Array(256*3);
+var raw=null, lastJson=null, lastBin=null;
+var norm8=new Uint8Array(NPIX);
+var scaleS=2, img=null, sx0=null, sx1=null, sfx=null, sy0=null, sy1=null, sfy=null;
+var res=0.01, spotK=null, fpaC=null, houseC=null, effGain=null, emisPct=null;
+var tlinOn=null;   // sensor's own radiometry flag from telemetry; null until known
+var minV=0,maxV=0,minI=0,maxI=0;
+var hist=new Uint32Array(16384);   // 4-count-wide bins over the 16-bit range
+var rangeLo=null, rangeHi=null;
+var probe=null;                       // {x,y} sensor px
+var spotPos={x:79,y:59};              // camera spot ROI top-left (Lepton default is center)
+var cursorMode="probe";
+var useF=false, agcOn=false;
+var frames=0, fpsCount=0, fpsT=Date.now();
+var streaming=true;
+
+function $(id){return document.getElementById(id);}
+var store={
+  get:function(k,d){ try{ var v=localStorage.getItem("tcam."+k); return v===null?d:v; }catch(e){ return d; } },
+  set:function(k,v){ try{ localStorage.setItem("tcam."+k,v); }catch(e){} }
+};
+
+/* ============================== helpers ============================== */
+function toast(msg,kind){
+  var t=$("toast");
+  t.textContent=msg;
+  t.className="glass show"+(kind?" "+kind:"");
+  clearTimeout(t._h);
+  t._h=setTimeout(function(){t.className="glass";},3200);
+}
+function toC(v){ return v*res-273.15; }
+function disp(c){ return useF ? c*9/5+32 : c; }
+function fmt(c){ return (c===null||c===undefined||isNaN(c)) ? "--"
+                 : disp(c).toFixed(1)+"°"+(useF?"F":"C"); }
+
+function buildLut(name){
+  var pts=PALETTES[name]||PALETTES["Ironbow"], i, j;
+  for(i=0;i<256;i++){
+    var p=i/255, a=pts[0], b=pts[pts.length-1];
+    for(j=0;j<pts.length-1;j++){
+      if(p>=pts[j][0] && p<=pts[j+1][0]){ a=pts[j]; b=pts[j+1]; break; }
+    }
+    var span=b[0]-a[0], f=span>0?(p-a[0])/span:0;
+    lut[i*3]  =(a[1]+(b[1]-a[1])*f)|0;
+    lut[i*3+1]=(a[2]+(b[2]-a[2])*f)|0;
+    lut[i*3+2]=(a[3]+(b[3]-a[3])*f)|0;
+  }
+  var g=[], k;
+  for(k=0;k<=10;k++){
+    var idx=Math.round(k*25.5)*3;
+    g.push("rgb("+lut[idx]+","+lut[idx+1]+","+lut[idx+2]+") "+(k*10)+"%");
+  }
+  // vertical bar runs hot (top) to cold (bottom)
+  $("scalegrad").style.background="linear-gradient(0deg,"+g.join(",")+")";
+}
+
+function b64ToU8(b64){
+  var bin=atob(b64), n=bin.length, out=new Uint8Array(n), i;
+  for(i=0;i<n;i++) out[i]=bin.charCodeAt(i);
+  return out;
+}
+
+/* Precompute bilinear sample maps for the current scale */
+function setScale(S){
+  scaleS=S;
+  var ow=W*S, oh=H*S, i, p, p0;
+  cv.width=ow; cv.height=oh;
+  img=ctx.createImageData(ow,oh);
+  sx0=new Uint16Array(ow); sx1=new Uint16Array(ow); sfx=new Float32Array(ow);
+  sy0=new Uint16Array(oh); sy1=new Uint16Array(oh); sfy=new Float32Array(oh);
+  for(i=0;i<ow;i++){
+    p=(i+0.5)/S-0.5; if(p<0)p=0; if(p>W-1)p=W-1;
+    p0=Math.floor(p); sx0[i]=p0; sx1[i]=(p0<W-1)?p0+1:p0; sfx[i]=p-p0;
+  }
+  for(i=0;i<oh;i++){
+    p=(i+0.5)/S-0.5; if(p<0)p=0; if(p>H-1)p=H-1;
+    p0=Math.floor(p); sy0[i]=p0; sy1[i]=(p0<H-1)?p0+1:p0; sfy[i]=p-p0;
+  }
+  fitCanvas();
+  render();
+}
+
+/* Size the canvas element to the viewport, preserving 4:3.
+   The floating chrome is opaque enough to hide what it covers, so the stage
+   reserves space for it: below the top bar and above the readout chips.  When
+   the chrome auto-hides in fullscreen those reservations drop away and the
+   stream gets the whole display. */
+function fitCanvas(){
+  var bare=document.body.classList.contains("hidechrome");
+  var top=12, bottom=12;
+  if(!bare){
+    var tb=$("topbar").getBoundingClientRect();
+    top=tb.bottom+10;
+    var ch=$("chips").getBoundingClientRect();
+    bottom=Math.max(12,(ch.height|0)+22);
+  }
+  var availW=window.innerWidth-24, availH=window.innerHeight-top-bottom;
+  if(availH<60) availH=60;
+  var w=availW, h=w*H/W;
+  if(h>availH){ h=availH; w=h*W/H; }
+  cv.style.width=w+"px"; cv.style.height=h+"px";
+  var st=$("stage").style;
+  st.paddingTop=top+"px"; st.paddingBottom=bottom+"px";
+  var m=$("marks");
+  m.style.width=w+"px"; m.style.height=h+"px";
+  m.setAttribute("viewBox","0 0 "+w+" "+h);
+  drawMarks();
+}
+
+/* Fullscreen is immersive: the chrome fades out after a moment of stillness
+   and returns on any pointer or key activity, like a video player. */
+var chromeTimer=null;
+function pokeChrome(){
+  if(document.body.classList.contains("hidechrome")){
+    document.body.classList.remove("hidechrome");
+    fitCanvas();
+  }
+  clearTimeout(chromeTimer);
+  if(document.fullscreenElement){
+    chromeTimer=setTimeout(function(){
+      document.body.classList.add("hidechrome");
+      fitCanvas();
+    },2600);
+  }
+}
+document.addEventListener("fullscreenchange",function(){ pokeChrome(); fitCanvas(); });
+document.addEventListener("pointermove",pokeChrome);
+document.addEventListener("pointerdown",pokeChrome);
+
+/* ============================== rendering ============================== */
+function render(){
+  if(!raw||!img) return;
+  var i,v,lo,hi;
+
+  minV=65535; maxV=0;
+  for(i=0;i<NPIX;i++){
+    v=raw[i];
+    if(v<minV){minV=v;minI=i;}
+    if(v>maxV){maxV=v;maxI=i;}
+  }
+
+  if($("auto").checked || agcOn){
+    // Optionally range on the 1st-99th percentile instead of the absolute
+    // extremes, so a few outlier pixels cannot own both palette ends.  A
+    // toggle rather than always-on: when hunting subtle contrast it helps,
+    // and when validating the sensor it must be possible to see everything.
+    var p1=minV, p99=maxV;
+    if($("clipEn").checked){
+      hist.fill(0);
+      for(i=0;i<NPIX;i++) hist[raw[i]>>2]++;
+      var need=NPIX*0.01, acc=0, b;
+      for(b=minV>>2; b<=maxV>>2; b++){ acc+=hist[b]; if(acc>=need){ p1=b<<2; break; } }
+      acc=0;
+      for(b=maxV>>2; b>=minV>>2; b--){ acc+=hist[b]; if(acc>=need){ p99=(b<<2)+3; break; } }
+      if(p99<=p1){ p1=minV; p99=maxV; }
+    }
+    if(rangeLo===null){ rangeLo=p1; rangeHi=p99; }
+    else{
+      rangeLo += (p1-rangeLo)*0.2;
+      rangeHi += (p99-rangeHi)*0.2;
+    }
+    lo=rangeLo; hi=rangeHi;
+  }else{
+    var uLo=parseFloat($("rlo").value), uHi=parseFloat($("rhi").value);
+    var cLo=isNaN(uLo)?toC(minV):(useF?(uLo-32)*5/9:uLo);
+    var cHi=isNaN(uHi)?toC(maxV):(useF?(uHi-32)*5/9:uHi);
+    lo=(cLo+273.15)/res; hi=(cHi+273.15)/res;
+  }
+  if(hi-lo<1) hi=lo+1;
+
+  // normalize raw counts to bytes once, then interpolate bytes - visually
+  // identical to interpolating 16-bit data and roughly 16x cheaper at 4x
+  var scale=255/(hi-lo);
+  for(i=0;i<NPIX;i++){
+    v=(raw[i]-lo)*scale;
+    norm8[i]= v<0?0 : (v>255?255:v|0);
+  }
+
+  // Isotherm alarm: pixels at or above the threshold render in a fixed alarm
+  // color.  The comparison happens in normalized-byte space so it costs nothing
+  // extra in the interpolation loops; 256 means "disabled" since no byte reaches it.
+  var isoN=256;
+  if($("isoEn").checked && !agcOn && tlinOn!==false){
+    var isoC=parseFloat($("isoT").value);
+    if(!isNaN(isoC)){
+      if(useF) isoC=(isoC-32)*5/9;
+      var n=((isoC+273.15)/res-lo)*scale;
+      isoN = n<0?0 : (n>255?256:n);
+    }
+  }
+
+  var d=img.data, o=0, S=scaleS;
+  if(S===1){
+    for(i=0;i<NPIX;i++){
+      if(norm8[i]>=isoN){ d[o++]=255; d[o++]=43; d[o++]=214; d[o++]=255; }
+      else{
+        var i3=norm8[i]*3;
+        d[o++]=lut[i3]; d[o++]=lut[i3+1]; d[o++]=lut[i3+2]; d[o++]=255;
+      }
+    }
+  }else{
+    var ow=W*S, oh=H*S, x, y;
+    for(y=0;y<oh;y++){
+      var r0=sy0[y]*W, r1=sy1[y]*W, fy=sfy[y];
+      for(x=0;x<ow;x++){
+        var x0=sx0[x], x1=sx1[x], fx=sfx[x];
+        var t=norm8[r0+x0]+(norm8[r0+x1]-norm8[r0+x0])*fx;
+        var b=norm8[r1+x0]+(norm8[r1+x1]-norm8[r1+x0])*fx;
+        var v=(t+(b-t)*fy)|0;
+        if(v>=isoN){ d[o++]=255; d[o++]=43; d[o++]=214; d[o++]=255; }
+        else{
+          var j=v*3;
+          d[o++]=lut[j]; d[o++]=lut[j+1]; d[o++]=lut[j+2]; d[o++]=255;
+        }
+      }
+    }
+  }
+  ctx.putImageData(img,0,0);
+
+  var noTemps = agcOn || tlinOn===false;
+  $("sLo").textContent = noTemps?(agcOn?"AGC":"raw"):fmt(toC(lo)).replace("°C","").replace("°F","");
+  $("sHi").textContent = noTemps?"":fmt(toC(hi));
+  $("sMid").textContent = noTemps?"":fmt(toC((lo+hi)/2));
+  drawMarks();
+  updateReadouts();
+
+  // Feed the recorder a composited frame in lockstep with the stream
+  if(recorder && recorder.state==="recording"){
+    compositeFrame();
+    if(recTrack && recTrack.requestFrame) recTrack.requestFrame();
+  }
+}
+
+function sensorToScreen(x,y){
+  // sensor px -> css px inside the marks svg
+  var r=cv.getBoundingClientRect();
+  var mx=$("oMirror").checked ? (W-1-x) : x;
+  var my=$("oFlip").checked   ? (H-1-y) : y;
+  return {x:(mx+0.5)*r.width/W, y:(my+0.5)*r.height/H};
+}
+
+function drawMarks(){
+  var svg=$("marks"), out="";
+  if(!raw){ svg.innerHTML=""; return; }
+
+  function cross(px,py,r,color,gap){
+    return '<g stroke="'+color+'" stroke-width="1.8" fill="none">'+
+      '<circle cx="'+px+'" cy="'+py+'" r="'+r+'"/>'+
+      '<line x1="'+(px-r-gap)+'" y1="'+py+'" x2="'+(px-gap)+'" y2="'+py+'"/>'+
+      '<line x1="'+(px+gap)+'" y1="'+py+'" x2="'+(px+r+gap)+'" y2="'+py+'"/>'+
+      '<line x1="'+px+'" y1="'+(py-r-gap)+'" x2="'+px+'" y2="'+(py-gap)+'"/>'+
+      '<line x1="'+px+'" y1="'+(py+gap)+'" x2="'+px+'" y2="'+(py+r+gap)+'"/></g>';
+  }
+
+  if($("oMinMax").checked && !agcOn){
+    var pM=sensorToScreen(maxI%W, Math.floor(maxI/W));
+    var pm=sensorToScreen(minI%W, Math.floor(minI/W));
+    out+='<g stroke="#ff5252" stroke-width="1.7" fill="none"><circle cx="'+pM.x+'" cy="'+pM.y+'" r="7"/></g>';
+    out+='<g stroke="#39c4ff" stroke-width="1.7" fill="none"><circle cx="'+pm.x+'" cy="'+pm.y+'" r="7"/></g>';
+  }
+  if($("oSpot").checked){
+    var ps=sensorToScreen(spotPos.x, spotPos.y);
+    out+=cross(ps.x,ps.y,9,"#ff7a1a",4);
+  }
+  if(probe){
+    var pp=sensorToScreen(probe.x,probe.y);
+    out+='<g stroke="#ffffff" stroke-width="1.6" fill="none"><rect x="'+(pp.x-7)+'" y="'+(pp.y-7)+'" width="14" height="14" rx="2"/></g>';
+  }
+  svg.innerHTML=out;
+}
+
+function updateReadouts(){
+  if(agcOn){
+    $("rSpot").textContent=$("rMax").textContent=$("rMin").textContent=$("rProbe").textContent="AGC";
+  }else if(tlinOn===false){
+    // AGC is supposed to be off, yet the sensor says radiometry is not
+    // running - its pixels are uncalibrated counts, and printing them as
+    // degrees would be a lie.  The System tab's telemetry section names the
+    // state; toggling AGC on and off again (or FFC) re-issues the mode.
+    $("rSpot").textContent=$("rMax").textContent=$("rMin").textContent=$("rProbe").textContent="no cal";
+  }else if(!raw){
+    // No frame has arrived yet.  Tapping the image calls straight through to
+    // here, and reading the pixel array before it exists threw out of the click
+    // handler - leaving the marker drawn but every readout stale.
+    $("rSpot").textContent=$("rMax").textContent=$("rMin").textContent=$("rProbe").textContent="--";
+  }else{
+    $("rSpot").textContent = spotK!==null ? fmt(spotK*res-273.15)
+                                          : fmt(toC(raw[spotPos.y*W+spotPos.x]));
+    $("rMax").textContent  = fmt(toC(maxV));
+    $("rMin").textContent  = fmt(toC(minV));
+    $("rProbe").textContent= probe ? fmt(toC(raw[probe.y*W+probe.x])) : "--";
+  }
+  $("probeChip").style.display = probe ? "" : "none";
+  $("tFrames").textContent = frames;
+  $("tFpa").textContent   = fmt(fpaC);
+  $("tHouse").textContent = fmt(houseC);
+  $("tGain").textContent  = effGain===null?"--":(effGain===0?"High":"Low");
+  $("tEmis").textContent  = emisPct===null?"--":emisPct.toFixed(0)+"%";
+  $("tTlin").textContent  = tlinOn===null?"--":(tlinOn?"on (pixels are temperatures)":"OFF — raw counts, no temperatures");
+  $("tRes").textContent   = res+" K/count";
+  $("tSpot").textContent  = (spotK!==null && tlinOn!==false)?fmt(spotK*res-273.15):"--";
+}
+
+/* ============================== frames ============================== */
+function applyTelem(t){
+  if(t && t.length>=240){
+    res    =(t[209]===0)?0.1:0.01;   // row C word 49
+    spotK  = t[210];                 // row C word 50
+    fpaC   = t[24]/100-273.15;       // row A word 24
+    houseC = t[26]/100-273.15;       // row A word 26
+    effGain= t[166];                 // row C word 6
+    emisPct= t[99]/8192*100;         // row B word 19
+    // The sensor's own word on whether pixels are temperatures.  When a mode
+    // change is dropped by the sensor (its commands can fail silently), this
+    // is what catches it - the page must not dress raw counts up as degrees.
+    tlinOn = (t[208]===1);           // row C word 48: TLinear enable state
+  }
+}
+
+function frameDone(){
+  frames++; fpsCount++;
+  var now=Date.now();
+  if(now-fpsT>=1000){
+    $("fps").textContent=(fpsCount*1000/(now-fpsT)).toFixed(1)+" fps · "+
+                         (W*scaleS)+"×"+(H*scaleS);
+    fpsCount=0; fpsT=now;
+  }
+  render();
+}
+
+// Legacy json frame (base64 payloads) - kept so this page also works against
+// older firmware that streams the TCP-style json over the WebSocket
+function onImage(m){
+  lastJson=m; lastBin=null;
+  var bytes=b64ToU8(m.radiometric);
+  raw=new Uint16Array(bytes.buffer,0,NPIX);   // camera sends native little-endian
+  if(m.telemetry) applyTelem(new Uint16Array(b64ToU8(m.telemetry).buffer));
+  frameDone();
+}
+
+// Raw binary frame: 'TCAM' magic, u8 version, u8 flags, u16 telemetry bytes,
+// u32 radiometric bytes, then telemetry and radiometric words.  Offsets stay
+// even so both arrays are viewed in place with no copy and no base64 work.
+function onBinaryImage(ab){
+  if(ab.byteLength<12) return;
+  var dv=new DataView(ab);
+  if(dv.getUint8(0)!==0x54||dv.getUint8(1)!==0x43||
+     dv.getUint8(2)!==0x41||dv.getUint8(3)!==0x4D) return;   // 'TCAM'
+  if(dv.getUint8(4)!==1) return;                             // version
+  var tlen=dv.getUint16(6,true), rlen=dv.getUint32(8,true);
+  if((12+tlen+rlen)>ab.byteLength || rlen!==NPIX*2) return;
+  lastBin={buf:ab,tlen:tlen,rlen:rlen}; lastJson=null;
+  raw=new Uint16Array(ab,12+tlen,NPIX);
+  if(tlen) applyTelem(new Uint16Array(ab,12,tlen/2));
+  frameDone();
+}
+
+/* ============================== transport ============================== */
+function send(cmd,args){
+  if(!wsOK) return;
+  var o={cmd:cmd};
+  if(args) o.args=args;
+  ws.send(JSON.stringify(o));
+}
+
+function connect(){
+  var url="ws://"+location.host+"/ws";
+  try{ ws=new WebSocket(url); }catch(e){ scheduleReconnect(); return; }
+  ws.binaryType="arraybuffer";
+
+  ws.onopen=function(){
+    wsOK=true;
+    reconnectDelay=2000;
+    $("dot").className="on";
+    $("substate").textContent="connected";
+    send("get_status"); send("get_config"); send("get_wifi");
+    setStream(true);
+    // If the link is up but nothing arrives, say which side is silent - this
+    // pairs with the camera's own "First image frame sent" serial log line
+    var f0=frames;
+    setTimeout(function(){
+      if(wsOK && frames===f0){
+        $("substate").textContent="connected — no frames from camera";
+      }
+    },4000);
+  };
+
+  ws.onmessage=function(ev){
+    if(ev.data instanceof ArrayBuffer){ onBinaryImage(ev.data); return; }
+    var m;
+    try{ m=JSON.parse(ev.data); }catch(e){ return; }
+    if(m.radiometric){ onImage(m); return; }
+    if(m.status)  { applyStatus(m.status); return; }
+    if(m.config)  { applyConfig(m.config); return; }
+    if(m.wifi)    { applyWifi(m.wifi); return; }
+    if(m.cam_info){
+      if(m.cam_info.info_value===0) toast(m.cam_info.info_string||"Command rejected","err");
+      return;
+    }
+  };
+
+  ws.onclose=function(){
+    wsOK=false;
+    $("dot").className="";
+    $("substate").textContent="disconnected — retrying";
+    scheduleReconnect();
+  };
+  ws.onerror=function(){};
+}
+
+function scheduleReconnect(){
+  clearTimeout(reconnectTimer);
+  reconnectTimer=setTimeout(connect,reconnectDelay);
+  // Back off toward 30 s so a stale background tab does not hammer the camera
+  // (and fill its log) forever; onopen resets the delay
+  reconnectDelay=Math.min(30000,Math.round(reconnectDelay*1.7));
+}
+
+function applyStatus(s){
+  if(s.Camera){ $("camname").textContent=s.Camera; document.title=s.Camera; }
+  $("iVer").textContent=s.Version||"--";
+  if(s.Model!==undefined){
+    var m=s.Model|0;
+    $("iModel").textContent=(m & 0xFF);
+    var lep={0:"Lepton 3.5",1:"Lepton 3.0",2:"Lepton 3.1R",3:"unknown"};
+    $("iLep").textContent=lep[(m>>8)&3];
+    var iface={0:"WiFi",1:"Serial / SPI",2:"Ethernet",3:"unknown"};
+    $("iIf").textContent=iface[(m>>12)&3];
+  }
+}
+
+function applyConfig(c){
+  agcOn = !!c.agc_enabled;
+  $("agc").checked=agcOn;
+  if(c.gain_mode!==undefined) $("gain").value=String(c.gain_mode);
+  if(c.emissivity!==undefined){
+    $("em").value=c.emissivity;
+    $("emLbl").textContent=c.emissivity+"%";
+  }
+}
+
+var netFlags=0x01;
+function applyWifi(w){
+  if(w.ap_ssid){
+    $("apssid").value=w.ap_ssid;
+    $("mdnsname").textContent=w.ap_ssid.toLowerCase()+".local";
+    $("apname").textContent=w.ap_ssid;
+  }
+  if(w.ap_ip_addr) $("apaddr").textContent=w.ap_ip_addr;
+  if(w.sta_ssid) $("stassid").value=w.sta_ssid;
+  if(w.cur_ip_addr) $("iIp").textContent=w.cur_ip_addr;
+  if(w.sta_ip_addr && w.sta_ip_addr!=="0.0.0.0") $("staip").value=w.sta_ip_addr;
+  if(w.sta_netmask && w.sta_netmask!=="0.0.0.0") $("stamask").value=w.sta_netmask;
+  if(w.flags!==undefined){
+    netFlags=w.flags|0;
+    $("stamode").checked=!!(netFlags & 0x80);
+    $("staticEn").checked=!!(netFlags & 0x10);
+    $("staticBox").style.display=(netFlags & 0x10)?"block":"none";
+  }
+  if(w.saved) renderSavedNets(w.saved);
+}
+
+function renderSavedNets(list){
+  var box=$("savedNets");
+  box.innerHTML="";
+  list.forEach(function(n){
+    var el=document.createElement("div");
+    el.innerHTML="<span>"+n.ssid.replace(/[<>&]/g,"")+(n["static"]?" \u00b7 fixed address":"")+
+                 "</span><small style=\"cursor:pointer;color:var(--err)\">Forget</small>";
+    el.style.cursor="default";
+    el.lastChild.onclick=function(ev){
+      ev.stopPropagation();
+      if(confirm("Forget \""+n.ssid+"\"? The camera will no longer join it automatically.")){
+        send("forget_wifi",{sta_ssid:n.ssid});
+        toast("Forgot "+n.ssid,"ok");
+        setTimeout(function(){ send("get_wifi"); },500);
+      }
+    };
+    box.appendChild(el);
+  });
+  $("savedWrap").style.display=list.length?"block":"none";
+  $("savedHint").style.display=list.length?"none":"block";
+}
+
+function setStream(on){
+  streaming=on;
+  if(on) send("stream_on",{delay_msec:parseInt($("fi").value,10),num_frames:0});
+  else   send("stream_off");
+}
+
+/* ============================== UI wiring ============================== */
+// panel + tabs
+$("bPanel").onclick=function(){ $("panel").classList.add("open"); };
+$("bClose").onclick=function(){ $("panel").classList.remove("open"); };
+
+// The (i) button reveals every explanation in the panel; off by default so the
+// working surface stays dense.  Remembered per device, like the other prefs.
+function setHelp(on){
+  document.body.classList.toggle("showhelp",on);
+  $("bHelp").classList.toggle("active",on);
+  store.set("help",on?"1":"");
+}
+$("bHelp").onclick=function(){ setHelp(!document.body.classList.contains("showhelp")); };
+setHelp(store.get("help","")==="1");
+Array.prototype.forEach.call(document.querySelectorAll("#tabs button"),function(b){
+  b.onclick=function(){
+    Array.prototype.forEach.call(document.querySelectorAll("#tabs button"),function(x){x.classList.remove("sel");});
+    Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(x){x.classList.remove("sel");});
+    b.classList.add("sel");
+    $("t-"+b.dataset.t).classList.add("sel");
+  };
+});
+
+function segWire(id,attr,cb){
+  var seg=$(id);
+  Array.prototype.forEach.call(seg.children,function(b){
+    b.onclick=function(){
+      Array.prototype.forEach.call(seg.children,function(x){x.classList.remove("sel");});
+      b.classList.add("sel");
+      cb(b.dataset[attr]);
+    };
+  });
+}
+function segSet(id,attr,val){
+  Array.prototype.forEach.call($(id).children,function(b){
+    b.classList.toggle("sel", b.dataset[attr]===String(val));
+  });
+}
+
+// palette
+var sel=$("pal");
+Object.keys(PALETTES).forEach(function(n){
+  var o=document.createElement("option"); o.value=o.textContent=n; sel.appendChild(o);
+});
+sel.value=store.get("pal","Ironbow");
+if(!PALETTES[sel.value]) sel.value="Ironbow";
+sel.onchange=function(){ store.set("pal",sel.value); buildLut(sel.value); render(); };
+buildLut(sel.value);
+
+// resolution
+segWire("segRes","s",function(v){ store.set("res",v); setScale(parseInt(v,10)); });
+scaleS=parseInt(store.get("res","2"),10)||2;
+segSet("segRes","s",scaleS);
+
+// cursor mode
+segWire("segCur","m",function(v){ cursorMode=v; });
+
+// units
+segWire("segUnits","u",function(v){
+  useF=(v==="F"); store.set("f",useF?"1":""); render();
+});
+useF=store.get("f","")==="1";
+segSet("segUnits","u",useF?"F":"C");
+
+// display toggles
+$("auto").onchange=function(){
+  $("manual").style.display=this.checked?"none":"grid";
+  rangeLo=null;
+  render();
+};
+$("rlo").oninput=$("rhi").oninput=render;
+$("lockRange").onclick=function(){
+  if(rangeLo===null||agcOn||tlinOn===false) return;
+  $("auto").checked=false;
+  $("manual").style.display="grid";
+  $("rlo").value=disp(toC(rangeLo)).toFixed(1);
+  $("rhi").value=disp(toC(rangeHi)).toFixed(1);
+  render();
+  toast("Range locked","ok");
+};
+$("oSpot").onchange=$("oMinMax").onchange=drawMarks;
+$("oMirror").onchange=function(){
+  store.set("mirror",this.checked?"1":"");
+  cv.classList.toggle("mirror",this.checked);
+  drawMarks();
+};
+$("oMirror").checked=store.get("mirror","")==="1";
+cv.classList.toggle("mirror",$("oMirror").checked);
+$("oFlip").onchange=function(){
+  store.set("flipv",this.checked?"1":"");
+  cv.classList.toggle("flipv",this.checked);
+  drawMarks();
+};
+$("oFlip").checked=store.get("flipv","")==="1";
+cv.classList.toggle("flipv",$("oFlip").checked);
+$("oSmooth").onchange=function(){
+  store.set("smooth",this.checked?"1":"");
+  cv.classList.toggle("smooth",this.checked);
+};
+$("oSmooth").checked=store.get("smooth","")==="1";
+cv.classList.toggle("smooth",$("oSmooth").checked);
+
+// canvas interaction: probe or spot placement
+$("canwrap").addEventListener("pointerdown",function(e){
+  var r=cv.getBoundingClientRect();
+  if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom) return;
+  var x=Math.floor((e.clientX-r.left)/r.width*W);
+  var y=Math.floor((e.clientY-r.top)/r.height*H);
+  if($("oMirror").checked) x=W-1-x;
+  if($("oFlip").checked)   y=H-1-y;
+  x=Math.max(0,Math.min(W-1,x)); y=Math.max(0,Math.min(H-1,y));
+
+  if(cursorMode==="spot"){
+    // Reposition the camera's spot meter as a 2x2 ROI at the tapped pixel
+    var r1=Math.min(y,H-2), c1=Math.min(x,W-2);
+    send("set_spotmeter",{r1:r1,c1:c1,r2:r1+1,c2:c1+1});
+    spotPos={x:c1,y:r1};
+    toast("Spot meter moved","ok");
+  }else{
+    probe=(probe && probe.x===x && probe.y===y)?null:{x:x,y:y};
+  }
+  drawMarks(); updateReadouts();
+});
+
+window.addEventListener("resize",fitCanvas);
+
+// toolbar
+$("bShot").onclick=snapPng;
+$("bFfc").onclick=function(){ send("run_ffc"); toast("Flat field correction requested"); };
+/* Fullscreen, video-player style: enter fullscreen AND lock the display to
+   landscape, since the sensor is 4:3 landscape - the same pairing YouTube uses.
+   Orientation lock is only permitted while fullscreen, hence the ordering, and
+   it is best-effort: desktops and iOS Safari reject it, which is fine. */
+function fsElement(){ return document.fullscreenElement||document.webkitFullscreenElement||null; }
+
+function lockLandscape(){
+  try{
+    if(screen.orientation && screen.orientation.lock){
+      screen.orientation.lock("landscape").catch(function(){});
+    }
+  }catch(e){}
+}
+function unlockOrientation(){
+  try{ if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); }catch(e){}
+}
+
+$("bFull").onclick=function(){
+  if(fsElement()){
+    unlockOrientation();
+    if(document.exitFullscreen) document.exitFullscreen();
+    else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+  }else{
+    var el=document.documentElement, p=null;
+    try{ p=el.requestFullscreen({navigationUI:"hide"}); }
+    catch(e){ if(el.requestFullscreen) p=el.requestFullscreen(); }
+    if(!p && el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    if(p && p.then) p.then(lockLandscape,function(){});
+    else lockLandscape();
+  }
+};
+
+document.addEventListener("webkitfullscreenchange",function(){ pokeChrome(); fitCanvas(); });
+document.addEventListener("fullscreenchange",function(){
+  // Leaving fullscreen by any route (back gesture, Esc) must release the lock,
+  // or the browser stays pinned to landscape afterwards
+  if(!fsElement()) unlockOrientation();
+});
+// Refit when the phone rotates; some browsers fire this without a resize
+if(screen.orientation && screen.orientation.addEventListener){
+  screen.orientation.addEventListener("change",function(){ setTimeout(fitCanvas,60); });
+}
+window.addEventListener("orientationchange",function(){ setTimeout(fitCanvas,60); });
+
+/* FLIR-style temperature scale: toggled from the top bar, or by tapping the
+   scale itself to dismiss it */
+function setScaleBar(on){
+  document.body.classList.toggle("noscale",!on);
+  $("bScale").classList.toggle("active",on);
+  store.set("scale",on?"1":"");
+}
+$("bScale").onclick=function(){ setScaleBar(document.body.classList.contains("noscale")); };
+$("scalebar").onclick=function(){ setScaleBar(false); toast("Scale hidden — thermometer button brings it back"); };
+setScaleBar(store.get("scale","1")==="1");
+
+// camera tab
+$("fi").oninput=function(){
+  var v=parseInt(this.value,10);
+  $("fiLbl").textContent = v===0 ? "as fast as possible" : v+" ms";
+};
+$("fi").onchange=function(){ store.set("fi",this.value); if(streaming) setStream(true); };
+$("fi").value=store.get("fi","0");
+$("fi").oninput();
+
+$("em").oninput=function(){ $("emLbl").textContent=this.value+"%"; };
+$("applyCam").onclick=function(){
+  send("set_config",{
+    agc_enabled:$("agc").checked?1:0,
+    emissivity:parseInt($("em").value,10),
+    gain_mode:parseInt($("gain").value,10)
+  });
+  agcOn=$("agc").checked;
+  toast("Sensor settings applied","ok");
+};
+$("ffcBtn").onclick=$("bFfc").onclick;
+function parkShutter(){
+  send("set_shutter",{park:1});
+  toast("Shutter parked \u2014 image goes flat. FFC or a new viewer reopens it.","ok");
+}
+$("parkBtn").onclick=parkShutter;
+$("bPark").onclick=parkShutter;
+
+// network tab
+$("scanBtn").onclick=function(){
+  var b=this;
+  b.disabled=true; b.textContent="Scanning…";
+  fetch("/api/scan").then(function(r){return r.json();}).then(function(d){
+    var box=$("nets");
+    box.innerHTML="";
+    (d.networks||[]).sort(function(a,c){return c.rssi-a.rssi;}).forEach(function(n){
+      var el=document.createElement("div");
+      el.innerHTML="<span>"+n.ssid.replace(/[<>&]/g,"")+"</span><small>"+n.rssi+" dBm"+
+                   (n.open?" · open":"")+"</small>";
+      el.onclick=function(){
+        Array.prototype.forEach.call(box.children,function(c){c.classList.remove("sel");});
+        el.classList.add("sel");
+        $("stassid").value=n.ssid;
+        $("stapw").focus();
+      };
+      box.appendChild(el);
+    });
+    if(!box.children.length) box.innerHTML='<div><small>No networks found</small></div>';
+    $("netsWrap").style.display="block";
+  }).catch(function(){ toast("Scan failed","err"); })
+  .then(function(){ b.disabled=false; b.textContent="Scan for networks"; });
+};
+
+/* ==================== camera discovery + app install ==================== */
+// Remember cameras we have seen.  An installed app launches at the origin it was
+// installed from, so if that camera's DHCP address changed the launch fails -
+// this list gives the user somewhere to go from any other reachable camera.
+function rememberCamera(name,ip){
+  var seen={};
+  try{ seen=JSON.parse(store.get("cams","{}"))||{}; }catch(e){}
+  seen[name]={ip:ip,t:Date.now()};
+  store.set("cams",JSON.stringify(seen));
+}
+
+function renderCameras(list){
+  var box=$("cams");
+  box.innerHTML="";
+  var here=location.hostname;
+  list.forEach(function(c){
+    var isSelf=(c.ip===here)||(c.host && (c.host+".local")===here);
+    var el=document.createElement("div");
+    el.innerHTML="<span>"+c.name.replace(/[<>&]/g,"")+(isSelf?" · this camera":"")+
+                 "</span><small>"+c.ip+(c.version?" · v"+c.version:"")+"</small>";
+    if(isSelf){ el.classList.add("sel"); }
+    else{
+      el.onclick=function(){
+        location.href="http://"+c.ip+"/";
+      };
+    }
+    box.appendChild(el);
+    rememberCamera(c.name,c.ip);
+  });
+  if(!box.children.length) box.innerHTML='<div><small>No other cameras found</small></div>';
+  $("camsWrap").style.display="block";
+}
+
+$("findBtn").onclick=function(){
+  var b=this;
+  b.disabled=true; b.textContent="Searching…";
+  fetch("/api/discover",{cache:"no-store"}).then(function(r){return r.json();})
+  .then(function(d){ renderCameras(d.cameras||[]); })
+  .catch(function(){ toast("Discovery failed","err"); })
+  .then(function(){ b.disabled=false; b.textContent="Find other cameras"; });
+};
+
+// No install button or prompt: Chrome reserves its one-tap install for https
+// origins it already trusts, and the camera deliberately serves plain http
+// (see FW 6.9).  The manifest and icons remain, so "Add to Home screen" in
+// the browser's own menu still yields a chrome-free app icon.
+
+$("staticEn").onchange=function(){
+  $("staticBox").style.display=this.checked?"block":"none";
+};
+
+function validIp(s){
+  var p=String(s).trim().split(".");
+  if(p.length!==4) return false;
+  for(var i=0;i<4;i++){
+    if(!/^\d{1,3}$/.test(p[i])) return false;
+    if(parseInt(p[i],10)>255) return false;
+  }
+  return true;
+}
+
+$("applyNet").onclick=function(){
+  // Start from the flags the camera reported and set only what this form owns:
+  // WiFi enabled at startup, station mode, and the static-address bit
+  var f=(netFlags | 0x01) & ~0x80 & ~0x10;
+  if($("stamode").checked) f|=0x80;
+  var args={ ap_ssid:$("apssid").value, sta_ssid:$("stassid").value };
+  if($("stapw").value) args.sta_pw=$("stapw").value;
+  if(f & 0x80){
+    if(!args.sta_ssid){ toast("Enter a network name to join","err"); return; }
+    if($("staticEn").checked){
+      if(!validIp($("staip").value) || !validIp($("stamask").value)){
+        toast("Enter a valid address and subnet mask","err"); return;
+      }
+      f|=0x10;
+      args.sta_ip_addr=$("staip").value.trim();
+      args.sta_netmask=$("stamask").value.trim();
+    }
+    if(!confirm("The camera will leave its own access point and join \""+args.sta_ssid+
+                "\".\n\nYou will need to reconnect this device to that network.")) return;
+  }
+  args.flags=f;
+  send("set_wifi",args);
+  netFlags=f;
+  toast("Saved — the camera is restarting its network","ok");
+};
+
+// Explicit return to hotspot mode.  Clearing the client-mode bit is all this
+// takes, but it was previously reachable only by unticking a checkbox whose
+// label said nothing about hotspots - a control nobody found when they most
+// needed it.
+$("apModeBtn").onclick=function(){
+  if(!confirm("Switch to hotspot mode?\n\nThe camera will stop joining \""+
+              ($("stassid").value||"your network")+"\" and broadcast \""+
+              $("apssid").value+"\" instead.\n\nReconnect this device to that "+
+              "network, then open http://"+$("apaddr").textContent+"/")) return;
+
+  var f=(netFlags | 0x01) & ~0x80 & ~0x10;
+  send("set_wifi",{ap_ssid:$("apssid").value, flags:f});
+  netFlags=f;
+  $("stamode").checked=false;
+  $("staticEn").checked=false;
+  $("staticBox").style.display="none";
+  toast("Switching to hotspot mode — reconnect to "+$("apssid").value,"ok");
+};
+
+// system tab
+$("setTime").onclick=function(){
+  var d=new Date();
+  send("set_time",{sec:d.getSeconds(),min:d.getMinutes(),hour:d.getHours(),
+                   dow:d.getDay()+1,day:d.getDate(),mon:d.getMonth()+1,
+                   year:d.getFullYear()-1970});
+  toast("Clock set","ok");
+};
+
+$("fwBtn").onclick=function(){ $("fw").click(); };
+$("fw").onchange=function(){
+  var f=this.files[0];
+  if(!f) return;
+  if(!confirm("Update firmware with "+f.name+" ("+(f.size/1024).toFixed(0)+" KB)?\n\n"+
+              "The camera will restart when it finishes.")) { this.value=""; return; }
+  setStream(false);
+  var bar=$("bar"), fill=bar.firstElementChild;
+  bar.style.display="block"; fill.style.width="0";
+  $("fwBtn").disabled=true;
+  var xhr=new XMLHttpRequest();
+  xhr.open("POST","/api/ota");
+  xhr.upload.onprogress=function(e){
+    if(e.lengthComputable) fill.style.width=(e.loaded/e.total*100)+"%";
+  };
+  xhr.onload=function(){
+    $("fwBtn").disabled=false;
+    if(xhr.status===200){
+      fill.style.width="100%";
+      toast("Update accepted — camera restarting","ok");
+      $("substate").textContent="restarting…";
+    }else{
+      bar.style.display="none";
+      toast("Update failed: "+(xhr.responseText||xhr.status),"err");
+    }
+  };
+  xhr.onerror=function(){
+    $("fwBtn").disabled=false; bar.style.display="none";
+    toast("Upload failed","err");
+  };
+  xhr.send(f);
+  this.value="";
+};
+
+/* ============================== capture ============================== */
+// Compositing canvas: the rendered stream plus (optionally) a burned-in data
+// overlay.  Screenshots and recordings both come from here so they always match.
+// Output is at least 640 wide so a native-resolution capture is still usable.
+var comp=document.createElement("canvas");
+var compG=comp.getContext("2d");
+
+function overlayOn(){ return $("ovCap").checked; }
+
+function compositeFrame(){
+  var mult = cv.width>=640 ? 1 : Math.round(640/cv.width);
+  var w=cv.width*mult, h=cv.height*mult;
+  if(comp.width!==w||comp.height!==h){ comp.width=w; comp.height=h; }
+  compG.imageSmoothingEnabled=$("oSmooth").checked;
+  compG.save();
+  if($("oMirror").checked){ compG.translate(w,0); compG.scale(-1,1); }
+  if($("oFlip").checked)  { compG.translate(0,h); compG.scale(1,-1); }
+  compG.drawImage(cv,0,0,w,h);
+  compG.restore();
+  if(overlayOn()) drawOverlayData(compG,w,h);
+  return comp;
+}
+
+// FLIR-style burned-in overlay: identity + timestamp top-left, readouts bottom-left,
+// temperature scale right, markers in place.  Everything scales with output height.
+function drawOverlayData(g,w,h){
+  var f=Math.max(11,Math.round(h/26));
+  var pad=Math.round(f*0.55), lh=Math.round(f*1.5);
+  g.font="600 "+f+"px -apple-system,'Segoe UI',Roboto,sans-serif";
+  g.textBaseline="top";
+
+  function box(x,y,lines,colors){
+    var wmax=0,i;
+    for(i=0;i<lines.length;i++) wmax=Math.max(wmax,g.measureText(lines[i]).width);
+    g.fillStyle="rgba(7,9,13,.62)";
+    var bw=wmax+pad*2, bh=lines.length*lh+pad*2-(lh-f);
+    if(g.roundRect){ g.beginPath(); g.roundRect(x,y,bw,bh,Math.round(f/2)); g.fill(); }
+    else g.fillRect(x,y,bw,bh);
+    for(i=0;i<lines.length;i++){
+      g.fillStyle=colors&&colors[i]?colors[i]:"#eef2f7";
+      g.fillText(lines[i],x+pad,y+pad+i*lh);
+    }
+  }
+
+  var d=new Date(), p=function(n){return (n<10?"0":"")+n;};
+  var ts=d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+
+         p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+  box(pad,pad,[$("camname").textContent,ts],["#eef2f7","#7e8b9c"]);
+
+  if(!agcOn && tlinOn!==false && raw){
+    var spotC = spotK!==null ? spotK*res-273.15 : toC(raw[spotPos.y*W+spotPos.x]);
+    var lines=["Spot "+fmt(spotC),"Max "+fmt(toC(maxV)),"Min "+fmt(toC(minV))];
+    var colors=["#ff7a1a","#ff5252","#39c4ff"];
+    if(probe){ lines.push("Probe "+fmt(toC(raw[probe.y*W+probe.x]))); colors.push("#ffffff"); }
+    box(pad,h-pad-(lines.length*lh+pad*2-(lh-f)),lines,colors);
+
+    // vertical scale, hot at top
+    var sw=Math.max(6,Math.round(f*0.6)), sh=Math.round(h*0.42);
+    var sx=w-pad-sw, sy=Math.round((h-sh)/2), k;
+    for(k=0;k<sh;k++){
+      var j=Math.round(255*(1-k/(sh-1)))*3;
+      g.fillStyle="rgb("+lut[j]+","+lut[j+1]+","+lut[j+2]+")";
+      g.fillRect(sx,sy+k,sw,1);
+    }
+    g.strokeStyle="rgba(255,255,255,.35)"; g.strokeRect(sx-0.5,sy-0.5,sw+1,sh+1);
+    g.fillStyle="#eef2f7"; g.textBaseline="bottom";
+    var hiTxt=fmt(toC(rangeHi!==null?rangeHi:maxV));
+    g.fillText(hiTxt,sx-pad-g.measureText(hiTxt).width+sw,sy-4);
+    g.textBaseline="top";
+    var loTxt=fmt(toC(rangeLo!==null?rangeLo:minV));
+    g.fillText(loTxt,sx-pad-g.measureText(loTxt).width+sw,sy+sh+4);
+  }
+
+  // markers, in sensor coordinates scaled to the capture
+  var fx=w/W, fy2=h/H, mir=$("oMirror").checked, flip=$("oFlip").checked;
+  function mx(px){ return ((mir?(W-1-px):px)+0.5)*fx; }
+  function my(py){ return ((flip?(H-1-py):py)+0.5)*fy2; }
+  g.lineWidth=Math.max(1.5,f/9); g.textBaseline="top";
+  if($("oSpot").checked){
+    var cx=mx(spotPos.x), cy=my(spotPos.y), r=f*0.7;
+    g.strokeStyle="#ff7a1a";
+    g.beginPath(); g.arc(cx,cy,r,0,6.2832); g.stroke();
+    g.beginPath();
+    g.moveTo(cx-r*1.6,cy); g.lineTo(cx-r*0.5,cy);
+    g.moveTo(cx+r*0.5,cy); g.lineTo(cx+r*1.6,cy);
+    g.moveTo(cx,cy-r*1.6); g.lineTo(cx,cy-r*0.5);
+    g.moveTo(cx,cy+r*0.5); g.lineTo(cx,cy+r*1.6);
+    g.stroke();
+  }
+  if($("oMinMax").checked && !agcOn){
+    g.strokeStyle="#ff5252";
+    g.beginPath(); g.arc(mx(maxI%W),my(Math.floor(maxI/W)),f*0.55,0,6.2832); g.stroke();
+    g.strokeStyle="#39c4ff";
+    g.beginPath(); g.arc(mx(minI%W),my(Math.floor(minI/W)),f*0.55,0,6.2832); g.stroke();
+  }
+  if(probe){
+    g.strokeStyle="#ffffff";
+    g.strokeRect(mx(probe.x)-f*0.5,my(probe.y)-f*0.5,f,f);
+  }
+}
+
+function snapPng(){
+  if(!raw){ toast("No frame yet","err"); return; }
+  compositeFrame().toBlob(function(b){ dl(b,"tcam-"+stamp()+".png"); });
+}
+$("snapPng").onclick=snapPng;
+
+/* ---- video recording ---- */
+var recorder=null, recTrack=null, recChunks=[], recStart=0, recTimerH=null;
+
+function recTick(){
+  var s=Math.floor((Date.now()-recStart)/1000);
+  $("recTime").textContent=Math.floor(s/60)+":"+((s%60)<10?"0":"")+(s%60);
+}
+
+function startRec(){
+  if(!raw){ toast("No frames yet","err"); return; }
+  if(typeof MediaRecorder==="undefined" || !comp.captureStream){
+    toast("Recording is not supported in this browser","err"); return;
+  }
+  compositeFrame();
+
+  // Prefer frame-accurate capture (a new video frame exactly when the camera
+  // delivers one); fall back to timed sampling where requestFrame is missing
+  var stream;
+  try{
+    stream=comp.captureStream(0);
+    recTrack=stream.getVideoTracks()[0];
+    if(!recTrack.requestFrame){ stream=comp.captureStream(10); recTrack=null; }
+  }catch(e){ stream=comp.captureStream(10); recTrack=null; }
+
+  var mime="", cands=["video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
+  for(var i=0;i<cands.length;i++){
+    if(MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(cands[i])){ mime=cands[i]; break; }
+  }
+
+  // Thermal video is low-motion; 5 Mbps is visually transparent for upscaled
+  // 160x120 content.  This matters because recorded chunks accumulate in browser
+  // memory until stop is pressed - at 8 Mbps a long take could exhaust a phone
+  // tab, taking the recording with it.  ~5 Mbps is roughly 40 MB per minute.
+  var bps=5000000;
+  try{
+    recorder=new MediaRecorder(stream, mime?{mimeType:mime,videoBitsPerSecond:bps}
+                                           :{videoBitsPerSecond:bps});
+  }catch(e){ toast("Could not start recorder","err"); recorder=null; return; }
+
+  recChunks=[];
+  recorder.ondataavailable=function(e){ if(e.data && e.data.size) recChunks.push(e.data); };
+  recorder.onstop=function(){
+    // `this` is the MediaRecorder.  The global is already nulled by stopRec()
+    // when this event fires, and reading through the global here threw -
+    // silently, inside an event handler - so recordings were never saved.
+    var type=this.mimeType||mime||"video/webm";
+    var ext=type.indexOf("mp4")>=0?"mp4":"webm";
+    var name="tcam-"+stamp()+"."+ext;
+    dl(new Blob(recChunks,{type:type}),name);
+    recChunks=[];
+    toast("Saved "+name+" to this device's downloads","ok");
+  };
+  recorder.start(1000);
+  recStart=Date.now();
+  document.body.classList.add("rec");
+  recTimerH=setInterval(recTick,500);
+  recTick();
+  toast("Recording (overlay "+(overlayOn()?"on":"off")+") — tap the record button again to stop and save","ok");
+}
+
+function stopRec(){
+  if(recorder && recorder.state!=="inactive") recorder.stop();
+  recorder=null; recTrack=null;
+  document.body.classList.remove("rec");
+  clearInterval(recTimerH);
+}
+
+$("bRec").onclick=function(){ if(recorder) stopRec(); else startRec(); };
+
+// overlay-in-capture toggle: panel checkbox and top bar button stay in sync
+function setOvCap(on){
+  $("ovCap").checked=on;
+  $("bLayers").classList.toggle("active",on);
+  store.set("ovcap",on?"1":"");
+}
+$("ovCap").onchange=function(){ setOvCap(this.checked); };
+$("bLayers").onclick=function(){ setOvCap(!$("ovCap").checked); };
+setOvCap(store.get("ovcap","1")==="1");
+
+// isotherm persistence
+$("isoEn").onchange=function(){ store.set("isoen",this.checked?"1":""); render(); };
+$("isoT").oninput=function(){ store.set("isot",this.value); render(); };
+$("isoEn").checked=store.get("isoen","")==="1";
+$("isoT").value=store.get("isot","");
+
+// keyboard shortcuts
+document.addEventListener("keydown",function(e){
+  if(e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  else if(e.key==="s"||e.key==="S") snapPng();
+  else if(e.key==="r"||e.key==="R") $("bRec").click();
+  else if(e.key==="f"||e.key==="F") $("bFull").click();
+  else if(e.key==="o"||e.key==="O") $("bLayers").click();
+  else if(e.key==="t"||e.key==="T") $("bScale").click();
+});
+// base64 of a byte view, chunked so String.fromCharCode never sees a huge arg list
+function b64FromU8(u8){
+  var s="", CH=32768;
+  for(var i=0;i<u8.length;i+=CH){
+    s+=String.fromCharCode.apply(null,u8.subarray(i,Math.min(i+CH,u8.length)));
+  }
+  return btoa(s);
+}
+
+$("snapRaw").onclick=function(){
+  var payload=null;
+  if(lastBin){
+    // The stream is binary now, so the desktop-compatible .tjsn wrapper (base64
+    // radiometric + telemetry json) is reconstructed here at save time - the one
+    // moment the base64 cost is actually worth paying
+    var d=new Date(), p=function(n){return (n<10?"0":"")+n;};
+    var o={
+      metadata:{
+        "Camera":$("camname").textContent,
+        "Version":$("iVer").textContent,
+        "Time":p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds()),
+        "Date":(d.getMonth()+1)+"/"+d.getDate()+"/"+(d.getFullYear()%100)
+      },
+      radiometric:b64FromU8(new Uint8Array(lastBin.buf,12+lastBin.tlen,lastBin.rlen))
+    };
+    if(lastBin.tlen) o.telemetry=b64FromU8(new Uint8Array(lastBin.buf,12,lastBin.tlen));
+    payload=JSON.stringify(o);
+  }else if(lastJson){
+    payload=JSON.stringify(lastJson);
+  }
+  if(!payload){ toast("No frame yet","err"); return; }
+  dl(new Blob([payload],{type:"application/json"}),"tcam-"+stamp()+".tjsn");
+};
+function stamp(){
+  var d=new Date(), p=function(n){return (n<10?"0":"")+n;};
+  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+"-"+
+         p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());
+}
+function dl(blob,name){
+  var u=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=u; a.download=name; a.click();
+  setTimeout(function(){URL.revokeObjectURL(u);},2000);
+}
+
+/* ==================== link status (signal + clients) ==================== */
+// RSSI thresholds follow the usual WiFi convention: better than -55 dBm is
+// excellent, -67 is the floor for reliable streaming, -75 starts to struggle.
+function sigBars(rssi){
+  if(rssi >= -55) return 4;
+  if(rssi >= -67) return 3;
+  if(rssi >= -75) return 2;
+  if(rssi >= -85) return 1;
+  return 0;
+}
+
+function applyLink(d){
+  var box=$("netinfo"), icon=$("sigIcon");
+  var apMode=(d.mode==="ap");
+  var rssi=(typeof d.rssi==="number")?d.rssi:0;
+  var bars=rssi?sigBars(rssi):0;
+
+  icon.setAttribute("class", bars?("s"+bars):"");
+  box.classList.remove("weak","fair","good");
+  if(bars>=3) box.classList.add("good");
+  else if(bars===2) box.classList.add("fair");
+  else if(bars>=0 && rssi) box.classList.add("weak");
+
+  $("sigTxt").textContent = rssi ? (rssi+" dBm") : (apMode?"no clients":"--");
+
+  // "connections" counts sockets, and a browser holds one for the page plus one
+  // for the WebSocket, so report devices where we can measure them (associated
+  // stations in access point mode) and sockets otherwise, labelled honestly.
+  var n = apMode ? d.stations : d.connections;
+  if(typeof n!=="number"||n<0) n=0;
+  $("cliTxt").textContent=n;
+
+  var tip = apMode
+    ? (d.stations+" device"+(d.stations===1?"":"s")+" joined this camera's network"+
+       (rssi?", strongest at "+rssi+" dBm":""))
+    : ("Signal to "+(d.sta_ssid||"network")+": "+rssi+" dBm · "+
+       d.connections+" open connection"+(d.connections===1?"":"s"));
+  box.title=tip;
+
+  $("iRssi").textContent = rssi ? (rssi+" dBm"+(bars?" ("+["none","weak","fair","good","excellent"][bars]+")":"")) : "--";
+  $("iStations").textContent = apMode ? d.stations : "n/a (station mode)";
+  $("iConns").textContent = (typeof d.connections==="number")?d.connections:"--";
+  $("iSession").textContent = {none:"idle",tcp:"desktop/mobile app",web:"this browser"}[d.session]||d.session||"--";
+  $("iHeap").textContent = d.heap ? (Math.round(d.heap/1024)+" KB") : "--";
+}
+
+function pollStatus(){
+  // A hidden tab has no business polling - it cannot show the result, and a
+  // forgotten tab would otherwise hit the camera every five seconds indefinitely
+  if(document.hidden) return;
+  fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
+    if(d.camera){ $("camname").textContent=d.camera; document.title=d.camera; }
+    $("iVer").textContent=d.version||"--";
+    if(d.model!==undefined) $("iModel").textContent=d.model;
+    $("iIf").textContent=d.interface||"--";
+    $("iIp").textContent=d.ip||"--";
+    if(d.mode==="ap" && !wsOK) $("substate").textContent="access point mode";
+    applyLink(d);
+  }).catch(function(){});
+}
+
+/* ==================== keep the screen awake while viewing ==================== */
+// A thermal camera you have to keep tapping to stop the phone sleeping is
+// useless for observation.  The standard Wake Lock API needs a secure context,
+// which plain http is not, so a muted, invisible 1 fps video (fed from a 2x2
+// canvas stream) keeps mobile screens on - the classic player trick.
+// Re-acquired whenever the tab becomes visible again, since the browser
+// releases the lock every time the page is hidden.
+var wakeLock=null, wakeVideo=null;
+
+function wakeOn(){
+  if(document.visibilityState!=="visible") return;
+  if("wakeLock" in navigator){
+    if(wakeLock) return;
+    navigator.wakeLock.request("screen").then(function(wl){
+      wakeLock=wl;
+      wl.addEventListener("release",function(){ wakeLock=null; });
+    }).catch(function(){});
+  }else{
+    if(!wakeVideo){
+      var c=document.createElement("canvas");
+      c.width=2; c.height=2;
+      c.getContext("2d").fillRect(0,0,2,2);
+      wakeVideo=document.createElement("video");
+      wakeVideo.muted=true;
+      wakeVideo.setAttribute("playsinline","");
+      wakeVideo.setAttribute("aria-hidden","true");
+      wakeVideo.style.cssText="position:fixed;left:-4px;top:-4px;width:2px;height:2px;opacity:0;pointer-events:none";
+      try{ wakeVideo.srcObject=c.captureStream(1); }catch(e){ wakeVideo=null; return; }
+      document.body.appendChild(wakeVideo);
+    }
+    wakeVideo.play().catch(function(){});
+  }
+}
+
+document.addEventListener("visibilitychange",wakeOn);
+// The video fallback may need a user gesture before play() is allowed
+document.addEventListener("pointerdown",wakeOn);
+
+/* ============================== boot ============================== */
+// The video connection dials FIRST.  It used to be the last line of boot, so
+// anything above it that threw in a restricted browser context (captive-portal
+// windows, older WebViews) silently killed the dial - producing a page where
+// every panel works and the one actual function, the video, never starts.
+// Function declarations hoist, so everything connect() needs already exists.
+$("substate").textContent="connecting…";
+connect();
+
+try{
+  // WebSocket keepalive: with the stream paused nothing flows on the socket, and
+  // the camera's connection manager treats a silent socket as evictable when the
+  // browser opens new HTTP connections.  A tiny periodic command keeps it marked
+  // active (and refreshes the System tab for free).
+  setInterval(function(){ if(wsOK && !streaming) send("get_status"); },25000);
+
+  wakeOn();
+  pollStatus();
+  // Cheap: a few hundred bytes every five seconds, next to 53 KB image frames
+  setInterval(pollStatus,5000);
+
+  setScale(scaleS);
+}catch(e){
+  // Secondary comforts failing must never look like the camera failing
+  toast("Some page features unavailable here: "+e.message,"err");
+}
+
+/* ==================== system log viewer ==================== */
+var logTimer=null;
+function refreshLog(){
+  fetch("/api/log",{cache:"no-store"}).then(function(r){return r.text();})
+  .then(function(t){
+    var box=$("logBox");
+    // Strip ANSI color codes the serial console renders
+    var stick = box.scrollTop+box.clientHeight >= box.scrollHeight-8;
+    box.textContent=t.replace(/\x1b\[[0-9;]*m/g,"");
+    if(stick) box.scrollTop=box.scrollHeight;
+  }).catch(function(){});
+}
+$("logBtn").onclick=function(){
+  var w=$("logWrap");
+  var open = w.style.display==="none";
+  w.style.display = open ? "block" : "none";
+  this.textContent = open ? "Hide system log" : "View system log";
+  clearInterval(logTimer); logTimer=null;
+  if(open){ refreshLog(); $("logBox").scrollTop=1e9; logTimer=setInterval(refreshLog,3000); }
+};
+
+// Clip preference survives reloads
+$("clipEn").checked = store.get("clip","1")==="1";
+$("clipEn").onchange = function(){ store.set("clip", this.checked?"1":"0"); };
+
+/* ==================== captive-portal escape ==================== */
+// Android's "sign in to network" window is a restricted WebView (its user agent
+// carries the "wv" token).  Nothing on the network side can make the OS launch
+// the installed app instead - that flow is owned by the OS - but one tap can
+// escape to the default browser, where an installed app is one more tap (or
+// where Chrome offers its open-in-app chip directly).
+try{
+  if(/Android/.test(navigator.userAgent) && /\bwv\b/.test(navigator.userAgent) &&
+     !(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)){
+    var esc=document.createElement("div");
+    esc.id="escBar";
+    esc.innerHTML='<span style="flex:1">Network sign-in window — the full app works better.</span>'+
+                  '<button class="go">Open in browser</button><button class="x">\u00d7</button>';
+    document.body.appendChild(esc);
+    esc.querySelector(".go").onclick=function(){
+      location.href="intent://"+location.host+"/#Intent;scheme=http;action=android.intent.action.VIEW;end";
+    };
+    esc.querySelector(".x").onclick=function(){ esc.remove(); };
+  }
+}catch(e){}
+
+})();
+</script>
+</body>
+</html>

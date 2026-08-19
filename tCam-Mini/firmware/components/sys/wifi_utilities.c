@@ -25,10 +25,13 @@
  */
 #include "wifi_utilities.h"
 #include "ps_utilities.h"
+#include "dns_hijack.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_mac.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "nvs_flash.h"
@@ -73,6 +76,32 @@ static const wifi_country_t def_country_info = {
 static bool sta_connected = false; // Set when we connect to an AP so we can disconnect if we restart
 static int sta_retry_num = 0;
 
+// Deferred station reconnect.  Retrying from inside the disconnect event used a
+// blocking delay in the system event handler - stalling AP associations, DHCP
+// and every other event behind it - and kept the radio off-channel near
+// continuously once the recovery AP was up.  A one-shot timer costs neither.
+static esp_timer_handle_t reconnect_timer = NULL;
+
+// While true a scan owns the radio: the disconnect handler must not schedule a
+// reconnect and the reconnect timer must not fire a connect underneath it
+static volatile bool scan_hold = false;
+
+// Saved roaming networks and the scan-based join machine.  The camera no longer
+// binds to one configured SSID: it scans, joins the strongest saved network it
+// can see, and raises the recovery AP right away when none are visible.
+static ps_saved_net_t saved_nets[PS_NUM_SAVED_NETS];
+static int join_target = -1;                 // index into saved_nets, -1 = none
+static volatile bool join_scan_active = false;
+// Scan results land here rather than on the event task's small stack
+static wifi_ap_record_t scan_records[20];
+
+// Recovery access point state.  When the camera is configured to join a network
+// it cannot find - typically because it moved to a new location - it raises its
+// own access point alongside the (still retrying) station so it can be
+// reconfigured from the captive portal without a reset or a cable.
+static bool fallback_active = false;
+static esp_netif_t *fallback_netif = NULL;
+
 
 
 //
@@ -81,6 +110,17 @@ static int sta_retry_num = 0;
 static bool init_esp_wifi();
 static bool enable_esp_wifi_ap();
 static bool enable_esp_wifi_client();
+static bool sta_should_connect();
+static bool apply_ap_ip_config(esp_netif_t* netif);
+static void load_ap_wifi_config(wifi_config_t* cfg);
+static void enable_fallback_ap();
+static void disable_fallback_ap();
+static void schedule_reconnect(uint32_t delay_ms);
+static void reconnect_timer_cb(void* arg);
+static int saved_net_count();
+static void start_join_scan();
+static void handle_join_scan_done();
+static void connect_to_saved(int idx);
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
@@ -119,7 +159,11 @@ bool wifi_init()
 		return false;
 	}
 	
-	ret = esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &ip_event_handler, NULL);
+	// STA_GOT_IP, not ETH_GOT_IP: this module only ever runs the WiFi interface
+	// (ethernet has its own utilities), and the DHCP address arrives with the
+	// station event.  The handler was registered for the ethernet event, so in
+	// station mode it never fired and cur_ip_addr stayed 0.0.0.0.
+	ret = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_handler, NULL);
 	if (ret != ESP_OK) {
 		ESP_LOGE(TAG, "Could not register ip_event_handler (%d)", ret);
 		return false;
@@ -181,6 +225,24 @@ bool wifi_init()
  */
 bool wifi_reinit()
 {
+	// Cancel any deferred reconnect - it belongs to the configuration being
+	// discarded - and release a scan hold left by an interrupted scan
+	if (reconnect_timer != NULL) {
+		esp_timer_stop(reconnect_timer);
+	}
+	scan_hold = false;
+
+	// Tear down a recovery AP before rebuilding - the netif is destroyed here so
+	// the next fallback episode (if any) creates it fresh against the new config
+	if (fallback_active) {
+		dns_hijack_stop();
+		fallback_active = false;
+	}
+	if (fallback_netif != NULL) {
+		esp_netif_destroy_default_wifi(fallback_netif);
+		fallback_netif = NULL;
+	}
+
 	// Attempt to disconnect from an AP if we were previously connected
 	if (sta_connected) {
 		ESP_LOGI(TAG, "Attempting to disconnect from AP");
@@ -245,12 +307,62 @@ bool wifi_is_connected()
 }
 
 
+bool wifi_is_ap_mode()
+{
+	return ((wifi_info.flags & NET_INFO_FLAG_CLIENT_MODE) == 0);
+}
+
+
+/**
+ * True when the station interface is meant to associate with an access point.
+ * False when it is only running so the web UI can scan.
+ */
+static bool sta_should_connect()
+{
+	if ((wifi_info.flags & NET_INFO_FLAG_CLIENT_MODE) == 0) return false;
+
+	return (saved_net_count() != 0);
+}
+
+
 /**
  * Return current WiFi configuration and state
  */
 net_info_t* wifi_get_info()
 {
 	return &wifi_info;
+}
+
+
+void wifi_scan_prepare()
+{
+	scan_hold = true;
+
+	if (reconnect_timer != NULL) {
+		esp_timer_stop(reconnect_timer);
+	}
+
+	// Abort a connect attempt in flight - the driver refuses to scan during one,
+	// and with an unreachable network configured there is nearly always one in
+	// flight.  The disconnect event this triggers sees scan_hold and stays quiet.
+	// A station that is actually associated is left alone; scanning is legal then.
+	// sta_connected, not NET_INFO_FLAG_CONNECTED - the flag describes the AP while
+	// the fallback is up, and this decision is about the station.
+	if (sta_should_connect() && !sta_connected) {
+		esp_wifi_disconnect();
+	}
+}
+
+
+void wifi_scan_complete()
+{
+	scan_hold = false;
+
+	// Resume the search shortly - the operator is clearly present, and the scan
+	// they just ran may have been the prelude to joining one of the results
+	if (sta_should_connect() && !sta_connected) {
+		schedule_reconnect(2000);
+	}
 }
 
 
@@ -302,22 +414,20 @@ static bool enable_esp_wifi_ap()
 	
 	// Create the esp_netif object
 	wifi_netif = esp_netif_create_default_wifi_ap();
-	
+
+	if (!apply_ap_ip_config(wifi_netif)) {
+		return false;
+	}
+
 	// Enable the AP
-	wifi_config_t wifi_config = {
-        .ap = {
-            .ssid_len = strlen(wifi_info.ap_ssid),
-            .max_connection = 1,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK
-        }
-    };
-    strcpy((char*) wifi_config.ap.ssid, wifi_info.ap_ssid);
-    strcpy((char*) wifi_config.ap.password, wifi_info.ap_pw);
-    if (strlen(wifi_info.ap_pw) == 0) {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-    
-    ret = esp_wifi_set_mode(WIFI_MODE_AP);
+	wifi_config_t wifi_config;
+	load_ap_wifi_config(&wifi_config);
+
+    // APSTA rather than AP: the station interface is not associated with anything,
+    // but its presence is what allows esp_wifi_scan_start() to run while we are
+    // serving the SoftAP.  That is what lets the web UI show the user a list of
+    // nearby networks to join instead of making them type an SSID blind.
+    ret = esp_wifi_set_mode(WIFI_MODE_APSTA);
     if (ret != ESP_OK) {
     	ESP_LOGE(TAG, "Could not set Soft AP mode (%d)", ret);
     	return false;
@@ -456,10 +566,33 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 			break;
 			
 		case WIFI_EVENT_STA_START:
-			ESP_LOGI(TAG, "Station started, trying to connect to %s", wifi_info.sta_ssid);
-			esp_wifi_connect();
+			// While we are an access point the station interface exists only so the
+			// web UI can scan for networks - there is nothing to associate with.
+			// Calling esp_wifi_connect() with an empty SSID just fails, and any
+			// resulting disconnect event would start a pointless retry loop.
+			if ((wifi_info.flags & NET_INFO_FLAG_CLIENT_MODE) == 0) {
+				ESP_LOGI(TAG, "Station started (scan only)");
+				break;
+			}
+			// Roaming: look at what is actually on the air and join the strongest
+			// saved network, rather than dialing one configured name blind
+			if (saved_net_count() == 0) {
+				ESP_LOGI(TAG, "No saved networks - raising the camera's own AP");
+				enable_fallback_ap();
+				break;
+			}
 			sta_retry_num = 0;
+			start_join_scan();
         	break;
+
+		case WIFI_EVENT_SCAN_DONE:
+			// The web UI's on-demand scan consumes its own results through the
+			// blocking API; only a scan this module started is handled here
+			if (join_scan_active) {
+				join_scan_active = false;
+				handle_join_scan_done();
+			}
+			break;
         
         case WIFI_EVENT_STA_STOP:
         	ESP_LOGI(TAG, "Station stopped");
@@ -474,16 +607,253 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         	break;
         	
         case WIFI_EVENT_STA_DISCONNECTED:
-        	wifi_info.flags &= ~NET_INFO_FLAG_CONNECTED;
-        	if (sta_retry_num > WIFI_FAST_RECONNECT_ATTEMPTS) {
-        		vTaskDelay(pdMS_TO_TICKS(1000));
-        	} else {
-        		sta_retry_num++;
+        	// In fallback the AP is our functioning interface - do not clear the
+        	// flag the web server and portal depend on just because the station
+        	// side of the radio failed another attempt
+        	if (!fallback_active) {
+        		wifi_info.flags &= ~NET_INFO_FLAG_CONNECTED;
         	}
-            esp_wifi_connect();
-            ESP_LOGI(TAG, "Retry connection to %s", wifi_info.sta_ssid);
+        	// The station itself is genuinely down either way.  NET_INFO_FLAG_CONNECTED
+        	// is overloaded in fallback (it describes the AP), so everything that needs
+        	// the truth about the station - scan bracketing, the reconnect timer -
+        	// reads sta_connected instead.
+        	sta_connected = false;
+        	// A scan-only station has nothing to reconnect to.  Retrying here would
+        	// spin the driver through connect/fail/connect as fast as it can, which
+        	// disturbs the access point we are actually serving.
+        	if (!sta_should_connect()) {
+        		break;
+        	}
+        	// A scan owns the radio right now; wifi_scan_complete() re-arms
+        	if (scan_hold) {
+        		break;
+        	}
+        	// Never block in this handler - it runs on the system event task, and a
+        	// delay here stalls AP associations and DHCP behind it.  A few fast
+        	// retries against the network that just dropped (a router rebooting, a
+        	// brief fade), then the join scan takes over and re-decides from what
+        	// is actually on the air - which is also what raises the recovery AP
+        	// when nothing saved is visible.
+        	if ((join_target >= 0) && (sta_retry_num < WIFI_FAST_RECONNECT_ATTEMPTS)) {
+        		sta_retry_num++;
+        		esp_wifi_connect();
+        		ESP_LOGI(TAG, "Retry connection to %s", wifi_info.sta_ssid);
+        	} else {
+        		schedule_reconnect(fallback_active ? WIFI_FALLBACK_RETRY_MSEC : 500);
+        	}
         	break;
 	}
+}
+
+
+/**
+ * Arm (or re-arm) the one-shot reconnect timer.  Created lazily so every path -
+ * first boot, reinit, fallback - shares the same instance.
+ */
+static void schedule_reconnect(uint32_t delay_ms)
+{
+	if (reconnect_timer == NULL) {
+		const esp_timer_create_args_t args = {
+			.callback = reconnect_timer_cb,
+			.name = "wifi_reconnect"
+		};
+
+		if (esp_timer_create(&args, &reconnect_timer) != ESP_OK) {
+			ESP_LOGE(TAG, "Could not create reconnect timer - retrying inline");
+			esp_wifi_connect();
+			return;
+		}
+	}
+
+	esp_timer_stop(reconnect_timer);
+	esp_timer_start_once(reconnect_timer, (uint64_t) delay_ms * 1000);
+}
+
+
+static void reconnect_timer_cb(void* arg)
+{
+	(void) arg;
+
+	// The world may have changed while the timer ran: a scan may own the radio,
+	// the network may have been joined, or the configuration replaced
+	if (scan_hold) return;
+	if (!sta_should_connect()) return;
+	if (sta_connected) return;
+
+	start_join_scan();
+}
+
+
+/**
+ * Number of occupied slots in the saved-network table.  The table is loaded
+ * fresh each time it is consulted, so networks added or forgotten through the
+ * command interface take effect on the next scan without any notification
+ * plumbing.
+ */
+static int saved_net_count()
+{
+	int i, n = 0;
+
+	ps_get_saved_nets(saved_nets);
+	for (i = 0; i < PS_NUM_SAVED_NETS; i++) {
+		if (saved_nets[i].ssid[0] != 0) n++;
+	}
+	return n;
+}
+
+
+/**
+ * Kick off a scan whose completion (WIFI_EVENT_SCAN_DONE) picks the strongest
+ * saved network in sight.  Non-blocking: this is called from event handlers and
+ * the reconnect timer.
+ */
+static void start_join_scan()
+{
+	esp_err_t ret;
+
+	if (scan_hold || join_scan_active) return;
+
+	if (saved_net_count() == 0) {
+		if (!fallback_active) enable_fallback_ap();
+		return;
+	}
+
+	join_scan_active = true;
+	ret = esp_wifi_scan_start(NULL, false);
+	if (ret != ESP_OK) {
+		// Usually a connect attempt still winding down; try again shortly
+		join_scan_active = false;
+		ESP_LOGW(TAG, "Join scan could not start (%d) - retrying", ret);
+		esp_wifi_disconnect();
+		schedule_reconnect(1000);
+	}
+}
+
+
+/**
+ * Scan finished: join the strongest saved network seen, or raise the recovery
+ * AP right away if none are on the air.  Runs on the system event task.
+ */
+static void handle_join_scan_done()
+{
+	int i, j;
+	int best_net = -1;
+	int best_rssi = -128;
+	uint16_t num = sizeof(scan_records) / sizeof(scan_records[0]);
+
+	if (esp_wifi_scan_get_ap_records(&num, scan_records) != ESP_OK) {
+		num = 0;
+	}
+
+	for (i = 0; i < (int) num; i++) {
+		for (j = 0; j < PS_NUM_SAVED_NETS; j++) {
+			if ((saved_nets[j].ssid[0] != 0) &&
+			    (strncmp((char*) scan_records[i].ssid, saved_nets[j].ssid,
+			             PS_SSID_MAX_LEN) == 0)) {
+				if (scan_records[i].rssi > best_rssi) {
+					best_rssi = scan_records[i].rssi;
+					best_net = j;
+				}
+			}
+		}
+	}
+
+	if (best_net >= 0) {
+		ESP_LOGI(TAG, "Joining '%s' (%d dBm, strongest of %d networks seen)",
+		         saved_nets[best_net].ssid, best_rssi, (int) num);
+		connect_to_saved(best_net);
+	} else {
+		ESP_LOGI(TAG, "No saved network visible (%d seen)", (int) num);
+		// The user chose fast fallback: one empty scan is enough to raise the
+		// camera's own AP, and the periodic rescan keeps looking underneath so
+		// arriving at a known house joins that house's network automatically
+		if (!fallback_active) {
+			enable_fallback_ap();
+		}
+		schedule_reconnect(WIFI_FALLBACK_RETRY_MSEC);
+	}
+}
+
+
+/**
+ * Point the station at one saved network and connect: credentials, DHCP or the
+ * network's stored static address, and the runtime sta_* fields the UI shows.
+ */
+static void connect_to_saved(int idx)
+{
+	esp_err_t ret;
+	int i;
+	wifi_config_t wifi_config = {
+		.sta = {
+			.scan_method = WIFI_FAST_SCAN,
+			.bssid_set = 0,
+			.channel = 0,
+			.listen_interval = 0,
+			.sort_method = WIFI_CONNECT_AP_BY_SIGNAL
+		}
+	};
+
+	join_target = idx;
+	sta_retry_num = 0;
+
+	// Mirror the choice into the runtime info so status reporting, the web UI
+	// and the TLS certificate all describe the network actually in use
+	strncpy(wifi_info.sta_ssid, saved_nets[idx].ssid, PS_SSID_MAX_LEN);
+	wifi_info.sta_ssid[PS_SSID_MAX_LEN] = 0;
+	strncpy(wifi_info.sta_pw, saved_nets[idx].pw, PS_PW_MAX_LEN);
+	wifi_info.sta_pw[PS_PW_MAX_LEN] = 0;
+	if ((saved_nets[idx].flags & PS_SAVED_NET_FLAG_STATIC_IP) != 0) {
+		wifi_info.flags |= NET_INFO_FLAG_CL_STATIC_IP;
+	} else {
+		wifi_info.flags &= ~NET_INFO_FLAG_CL_STATIC_IP;
+	}
+	for (i = 0; i < 4; i++) {
+		wifi_info.sta_ip_addr[i] = saved_nets[idx].ip_addr[i];
+		wifi_info.sta_netmask[i] = saved_nets[idx].netmask[i];
+	}
+
+	// Addressing is per-network now: a camera with a fixed address at home must
+	// still take DHCP at a friend's house
+	if (wifi_netif != NULL) {
+		if ((wifi_info.flags & NET_INFO_FLAG_CL_STATIC_IP) != 0) {
+			esp_netif_ip_info_t ip_info;
+
+			ret = esp_netif_dhcpc_stop(wifi_netif);
+			if ((ret != ESP_OK) && (ret != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED)) {
+				ESP_LOGE(TAG, "Stop DHCP for static address returned %d", ret);
+			}
+			ip_info.ip.addr = wifi_info.sta_ip_addr[3] |
+			                  (wifi_info.sta_ip_addr[2] << 8) |
+			                  (wifi_info.sta_ip_addr[1] << 16) |
+			                  (wifi_info.sta_ip_addr[0] << 24);
+			ip_info.gw.addr = esp_netif_ip4_makeu32(0, 0, 0, 0);
+			ip_info.netmask.addr = wifi_info.sta_netmask[3] |
+			                       (wifi_info.sta_netmask[2] << 8) |
+			                       (wifi_info.sta_netmask[1] << 16) |
+			                       (wifi_info.sta_netmask[0] << 24);
+			ret = esp_netif_set_ip_info(wifi_netif, &ip_info);
+			if (ret != ESP_OK) {
+				ESP_LOGE(TAG, "Set static address returned %d", ret);
+			}
+		} else {
+			ret = esp_netif_dhcpc_start(wifi_netif);
+			if ((ret != ESP_OK) && (ret != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED)) {
+				ESP_LOGE(TAG, "Start DHCP returned %d", ret);
+			}
+		}
+	}
+
+	strncpy((char*) wifi_config.sta.ssid, saved_nets[idx].ssid,
+	        sizeof(wifi_config.sta.ssid) - 1);
+	strncpy((char*) wifi_config.sta.password, saved_nets[idx].pw,
+	        sizeof(wifi_config.sta.password) - 1);
+
+	ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Set station config for '%s' returned %d",
+		         saved_nets[idx].ssid, ret);
+	}
+	esp_wifi_connect();
 }
 
 
@@ -495,7 +865,16 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
 {
 	ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
 	const esp_netif_ip_info_t *ip_info = &event->ip_info;
-	
+
+	// The configured network is reachable again (or the camera was just
+	// re-provisioned onto a new one) - the recovery AP has done its job
+	disable_fallback_ap();
+
+	// A reconnect scheduled before this success would fire a pointless connect
+	if (reconnect_timer != NULL) {
+		esp_timer_stop(reconnect_timer);
+	}
+
 	wifi_info.flags |= NET_INFO_FLAG_CONNECTED;
     sta_connected = true;
     sta_retry_num = 0;
@@ -506,4 +885,136 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
     wifi_info.cur_ip_addr[2] = (ip_info->ip.addr >> 8) & 0xFF;
     wifi_info.cur_ip_addr[1] = (ip_info->ip.addr >> 16) & 0xFF;
 	wifi_info.cur_ip_addr[0] = (ip_info->ip.addr >> 24) & 0xFF;
+}
+
+
+/**
+ * Push the configured AP address into a netif and restart its DHCP server.
+ * Persistent storage always carried an AP address but nothing ever applied it,
+ * so the camera used to come up on the esp_netif default of 192.168.4.1.  The
+ * DHCP server must be stopped around the change - the stop fails harmlessly if
+ * it has not started yet - and the DHCP pool follows the address automatically.
+ */
+static bool apply_ap_ip_config(esp_netif_t* netif)
+{
+	esp_err_t ret;
+	esp_netif_ip_info_t ip_info;
+
+	// Note: index 3 holds the first octet (see ps_utilities)
+	esp_netif_set_ip4_addr(&ip_info.ip, wifi_info.ap_ip_addr[3], wifi_info.ap_ip_addr[2],
+	                       wifi_info.ap_ip_addr[1], wifi_info.ap_ip_addr[0]);
+	esp_netif_set_ip4_addr(&ip_info.gw, wifi_info.ap_ip_addr[3], wifi_info.ap_ip_addr[2],
+	                       wifi_info.ap_ip_addr[1], wifi_info.ap_ip_addr[0]);
+	esp_netif_set_ip4_addr(&ip_info.netmask, 255, 255, 255, 0);
+
+	(void) esp_netif_dhcps_stop(netif);
+	ret = esp_netif_set_ip_info(netif, &ip_info);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Could not set AP IP address (%d)", ret);
+		return false;
+	}
+	(void) esp_netif_dhcps_start(netif);
+
+	return true;
+}
+
+
+/**
+ * Fill in the SoftAP configuration from the camera's stored identity
+ */
+static void load_ap_wifi_config(wifi_config_t* cfg)
+{
+	memset(cfg, 0, sizeof(wifi_config_t));
+	cfg->ap.ssid_len = strlen(wifi_info.ap_ssid);
+	cfg->ap.max_connection = WIFI_AP_MAX_CONN;
+	cfg->ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+	strcpy((char*) cfg->ap.ssid, wifi_info.ap_ssid);
+	strcpy((char*) cfg->ap.password, wifi_info.ap_pw);
+	if (strlen(wifi_info.ap_pw) == 0) {
+		cfg->ap.authmode = WIFI_AUTH_OPEN;
+	}
+}
+
+
+/**
+ * Raise the recovery access point.  Called from the station retry path when the
+ * configured network has been unreachable for a while - the usual reason being
+ * that the camera moved to a new location.  The station keeps retrying in the
+ * background, so if the configured network comes back (a rebooted router) the
+ * camera rejoins it and the recovery AP dissolves; meanwhile anyone can join the
+ * camera's own network and re-provision it from the captive portal.
+ *
+ * Runtime-only: nothing here touches persistent storage.
+ */
+static void enable_fallback_ap()
+{
+	int i;
+	wifi_config_t wifi_config;
+
+	if (fallback_active) return;
+
+	ESP_LOGI(TAG, "Cannot reach '%s' - raising recovery AP '%s' at %d.%d.%d.%d",
+	         wifi_info.sta_ssid, wifi_info.ap_ssid,
+	         wifi_info.ap_ip_addr[3], wifi_info.ap_ip_addr[2],
+	         wifi_info.ap_ip_addr[1], wifi_info.ap_ip_addr[0]);
+
+	// The AP netif is created once and reused across fallback episodes
+	if (fallback_netif == NULL) {
+		fallback_netif = esp_netif_create_default_wifi_ap();
+		if (fallback_netif == NULL) {
+			ESP_LOGE(TAG, "Could not create recovery AP netif");
+			return;
+		}
+	}
+	if (!apply_ap_ip_config(fallback_netif)) return;
+
+	load_ap_wifi_config(&wifi_config);
+
+	if (esp_wifi_set_mode(WIFI_MODE_APSTA) != ESP_OK) {
+		ESP_LOGE(TAG, "Could not enter APSTA for recovery");
+		return;
+	}
+	if (esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config) != ESP_OK) {
+		ESP_LOGE(TAG, "Could not configure recovery AP");
+		return;
+	}
+
+	// Present the AP address as ours and mark the interface usable so the web
+	// server (which waits for connectivity at boot) comes up and can serve the
+	// portal.  Clients joining the AP get the same captive-portal flow as a
+	// factory-fresh camera.
+	for (i = 0; i < 4; i++) {
+		wifi_info.cur_ip_addr[i] = wifi_info.ap_ip_addr[i];
+	}
+	wifi_info.flags |= NET_INFO_FLAG_CONNECTED;
+
+	dns_hijack_start(((uint32_t) wifi_info.ap_ip_addr[3])       |
+	                 ((uint32_t) wifi_info.ap_ip_addr[2] << 8)  |
+	                 ((uint32_t) wifi_info.ap_ip_addr[1] << 16) |
+	                 ((uint32_t) wifi_info.ap_ip_addr[0] << 24));
+
+	fallback_active = true;
+}
+
+
+/**
+ * Dissolve the recovery access point after the station successfully joined a
+ * network.  Joined clients are dropped - expected, since either the original
+ * network returned or they just re-provisioned the camera onto a new one.
+ */
+static void disable_fallback_ap()
+{
+	if (!fallback_active) return;
+
+	ESP_LOGI(TAG, "Station connected - dissolving recovery AP");
+
+	dns_hijack_stop();
+	(void) esp_wifi_set_mode(WIFI_MODE_STA);
+	fallback_active = false;
+}
+
+
+bool wifi_is_fallback_active()
+{
+	return fallback_active;
 }

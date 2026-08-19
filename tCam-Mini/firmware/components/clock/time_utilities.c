@@ -104,7 +104,7 @@ time_t rtc_makeTime(const tmElements_t tm);
  */
 void time_init()
 {
-	char buf[26];
+	char buf[TIME_DISP_STRING_LEN];
 	tmElements_t te;
 	struct timeval tv;
 	time_t secs;
@@ -216,16 +216,19 @@ bool time_changed(tmElements_t* te, time_t* prev_time)
  *
  *   "DOW MON DAY HH:MM:SS YEAR"
  *
- * buf must be at least 26 bytes long (to include null termination).
+ * buf must be at least TIME_DISP_STRING_LEN bytes long (to include null
+ * termination).
  */
 void time_get_disp_string(tmElements_t te, char* buf)
 {
 	// Validate te to prevent illegal accesses to the constant string buffers
 	if (te.Wday > 7) te.Wday = 0;
 	if (te.Month > 12) te.Month = 0;
-	
-	// Build up the string
-	sprintf(buf,"%s %s %2d %2d:%02d:%02d %4d", 
+
+	// Build up the string.  Bounded because the fields come from an RTC that may
+	// hold anything at all after a dead battery, and an out-of-range day or year
+	// would otherwise run past the end of the caller's buffer.
+	snprintf(buf, TIME_DISP_STRING_LEN, "%s %s %2d %2d:%02d:%02d %4d",
 		day_strings[te.Wday],
 		mon_strings[te.Month],
 		te.Day,

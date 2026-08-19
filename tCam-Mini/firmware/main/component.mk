@@ -7,3 +7,6 @@
 # please read the ESP-IDF documents if you need to do this.
 #
 CFLAGS+= -DLV_CONF_INCLUDE_SIMPLE
+
+# Embed the compressed web UI (run compress_web.py first when using the make build)
+COMPONENT_EMBED_FILES := www/index.html.gz

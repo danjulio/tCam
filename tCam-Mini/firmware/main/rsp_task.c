@@ -25,17 +25,23 @@
  */
 #include "net_cmd_task.h"
 #include "sif_cmd_task.h"
+#include "client_if.h"
 #include "ctrl_task.h"
 #include "lep_task.h"
 #include "rsp_task.h"
 #include "cmd_utilities.h"
+#include "lepton_utilities.h"
 #include "json_utilities.h"
+#include "vospi.h"
+#include "web_cmd.h"
 #include "sif_utilities.h"
 #include "sys_utilities.h"
 #include "upd_utilities.h"
+#include "web_task.h"
 #include "system_config.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -70,6 +76,8 @@ static const char* TAG = "rsp_task";
 
 // State
 static bool connected;
+static int64_t idle_start_usec = 0;   // when the last client went away (0 = not idle)
+static bool was_connected = false;    // for detecting a newly arrived client
 static bool stream_on;
 static bool image_pending;
 static bool got_image_0, got_image_1;
@@ -92,7 +100,9 @@ static char cmd_task_response_buffer[JSON_MAX_RSP_TEXT_LEN];
 // Firmware update control
 static char fw_update_version[UPD_MAX_VER_LEN+1];
 static int fw_update_state;
-static int fw_update_wait_timer;                // Counts down eval intervals waiting for some operation
+static int64_t fw_update_deadline_usec;         // Timeout deadline for the current fw update operation
+                                                // (a deadline rather than an iteration count because the
+                                                // task now wakes on notifications, not a fixed cadence)
 static int fw_req_length;
 static int fw_req_attempt_num;
 static int fw_cur_loc;
@@ -107,7 +117,9 @@ static int fw_seg_length;
 static void init_state();
 static void eval_stream_ready();
 static void handle_notifications();
+static void process_notifications(uint32_t notification_value);
 static int process_image(int n);
+static int build_binary_image(int n);
 static void send_response(char* rsp, int len, bool ser_mode);
 static bool cmd_response_available();
 static int get_cmd_response();
@@ -125,6 +137,7 @@ void rsp_task()
 	int len;
 	int brd_type;
 	int if_type;
+	uint32_t notification_value;
 	
 	ESP_LOGI(TAG, "Start task");
 	
@@ -154,31 +167,63 @@ void rsp_task()
 		if (if_type == CTRL_IF_MODE_SIF) {
 			connected = true;
 		} else {
-			if (net_cmd_connected()) {
+			if (client_if_connected()) {
 				connected = true;
 			} else if (connected) {
 				// Clear our state since we are no longer connected
 				init_state();
 			}
 		}
+
+		// Park the shutter over the detector when nobody is watching, so a
+		// camera left on a windowsill cannot take the sun on its sensor; the
+		// next viewer to connect reopens it (with an FFC to re-normalize).
+		// Only a newly arrived viewer unparks: an existing viewer who parked
+		// it deliberately (before unplugging) is left alone - running FFC
+		// also reopens it.  Serial-interface builds have no notion of a
+		// disconnected viewer and are untouched.
+		if (if_type != CTRL_IF_MODE_SIF) {
+			if (connected) {
+				idle_start_usec = 0;
+				if (!was_connected && lepton_shutter_parked()) {
+					lepton_shutter_unpark();
+				}
+			} else if (!lepton_shutter_parked()) {
+				if (idle_start_usec == 0) {
+					idle_start_usec = esp_timer_get_time();
+				} else if ((esp_timer_get_time() - idle_start_usec) >
+				           (RSP_SHUTTER_PARK_IDLE_MSEC * 1000LL)) {
+					lepton_shutter_park();
+				}
+			}
+			was_connected = connected;
+		}
 		
-		// Look for things to send
+		// Look for things to send.  A browser on the WebSocket gets the frame as
+		// raw binary: base64-wrapped json exists for the legacy TCP protocol, and
+		// carrying it over the WebSocket taxed every frame ~37% extra bytes plus a
+		// base64 encode here and a decode in the browser.  The web UI ships inside
+		// the firmware, so the two sides can never disagree about the format.
+		{
+			bool ws_binary = (if_type != CTRL_IF_MODE_SIF) &&
+			                 (client_if_active() == CLIENT_IF_WS);
+
 		if (got_image_0 || got_image_1) {
 			if (connected) {
 				if (got_image_0) {
-					len = process_image(0);
+					len = ws_binary ? build_binary_image(0) : process_image(0);
 					got_image_0 = false;
 #ifdef LOG_IMG_TIMESTAMP
 					ESP_LOGI(TAG, "process image 0");
 #endif
 				} else {
-					len = process_image(1);
+					len = ws_binary ? build_binary_image(1) : process_image(1);
 					got_image_1 = false;
 #ifdef LOG_IMG_TIMESTAMP
 					ESP_LOGI(TAG, "process image 1");
 #endif
-				}	
-					
+				}
+
 				// Send the image
 				if (len != 0) {
 					if (if_type == CTRL_IF_MODE_SIF) {
@@ -187,8 +232,18 @@ void rsp_task()
 						if (!system_spi_slave_busy()) {
 							send_spi_image(sys_image_rsp_buffer.bufferP, sys_image_rsp_buffer.length);
 						}
-					} else {
-						send_response(sys_image_rsp_buffer.bufferP, sys_image_rsp_buffer.length, false);
+					} else if (!web_ota_in_progress()) {
+						// Frames are still consumed above so lep_task is never held
+						// up, but they are dropped rather than transmitted while a
+						// firmware image is uploading - a full frame competing with
+						// the upload is the difference between a quick update and a
+						// stalled one.
+						if (ws_binary) {
+							(void) web_cmd_send_binary(sys_image_rsp_buffer.bufferP,
+							                           sys_image_rsp_buffer.length);
+						} else {
+							send_response(sys_image_rsp_buffer.bufferP, sys_image_rsp_buffer.length, false);
+						}
 					}
 				}
 				
@@ -199,6 +254,7 @@ void rsp_task()
 					}
 				}
 			}
+		}
 		}
 		
 		if (cmd_response_available()) {
@@ -211,7 +267,7 @@ void rsp_task()
 		
 		if (fw_update_state != FW_UPD_IDLE) {
 			// Look for timeout
-			if (--fw_update_wait_timer == 0) {
+			if (esp_timer_get_time() > fw_update_deadline_usec) {
 				if (fw_update_state == FW_UPD_REQUEST) {
 					// Request timed out without user confirming to start
 					xTaskNotify(task_handle_ctrl, CTRL_NOTIFY_FW_UPD_DONE, eSetBits);
@@ -222,7 +278,7 @@ void rsp_task()
 					if (++fw_req_attempt_num < FW_REQ_MAX_ATTEMPTS) {
 						// Request the segment again
 						send_get_fw();
-						fw_update_wait_timer = RSP_MAX_FW_UPD_GET_WAIT_MSEC / RSP_TASK_EVAL_NORM_MSEC;
+						fw_update_deadline_usec = esp_timer_get_time() + (RSP_MAX_FW_UPD_GET_WAIT_MSEC * 1000LL);
 						ESP_LOGI(TAG, "Retry chunk request");
 					} else {
 						// Give up
@@ -235,14 +291,16 @@ void rsp_task()
 				}
 			}
 		}
-		
-		// Sleep task - less if we are streaming
-		if (stream_on) {
-			vTaskDelay(pdMS_TO_TICKS(RSP_TASK_EVAL_FAST_MSEC));
-		} else {
-			vTaskDelay(pdMS_TO_TICKS(RSP_TASK_EVAL_NORM_MSEC));
+
+		// Wait for work.  A notification (a frame from lep_task, a command from the
+		// cmd task) wakes us immediately; otherwise we time out at the old polling
+		// cadence to service the periodic checks above.  This replaces a fixed
+		// vTaskDelay that added up to 50 mSec of latency to every frame sent.
+		if (xTaskNotifyWait(0x00, 0xFFFFFFFF, &notification_value,
+		                    pdMS_TO_TICKS(stream_on ? RSP_TASK_EVAL_FAST_MSEC : RSP_TASK_EVAL_NORM_MSEC))) {
+			process_notifications(notification_value);
 		}
-	} 
+	}
 }
 
 
@@ -355,9 +413,21 @@ static void eval_stream_ready()
 static void handle_notifications()
 {
 	uint32_t notification_value;
-	
+
 	notification_value = 0;
 	if (xTaskNotifyWait(0x00, 0xFFFFFFFF, &notification_value, 0)) {
+		process_notifications(notification_value);
+	}
+}
+
+
+/**
+ * Act on a set of notification bits.  Called both from the zero-timeout poll above
+ * and with bits returned by the blocking wait at the bottom of the task loop.
+ */
+static void process_notifications(uint32_t notification_value)
+{
+	{
 		//
 		// Handle cmd_task notifications
 		//
@@ -374,17 +444,26 @@ static void handle_notifications()
 			cur_stream_frame_delay_usec = next_stream_frame_delay_msec * 1000;
 			cur_stream_frame_num = next_stream_frame_num;
 			stream_remaining_frames = next_stream_frame_num;
-			
+
 			// First image is immediate
 			stream_ready_usec = esp_timer_get_time();
 			image_pending = true;
-			
+
 			// Start streaming
 			stream_on = true;
+
+			// One line per start so the log shows the pipeline stage was reached -
+			// silence here after a browser connects means the command never arrived
+			ESP_LOGI(TAG, "Stream on: %u mS delay, %u frames",
+			         (unsigned) next_stream_frame_delay_msec,
+			         (unsigned) next_stream_frame_num);
 		}
-		
+
 		if (Notification(notification_value, RSP_NOTIFY_CMD_STREAM_OFF_MASK)) {
 			// Stop streaming
+			if (stream_on) {
+				ESP_LOGI(TAG, "Stream off");
+			}
 			stream_on = false;
 		}
 		
@@ -416,7 +495,7 @@ static void handle_notifications()
 			xTaskNotify(task_handle_ctrl, CTRL_NOTIFY_FW_UPD_REQ, eSetBits);
 			
 			// Set our state and a timer (for the user to allow the update)
-			fw_update_wait_timer = RSP_MAX_FW_UPD_REQ_WAIT_MSEC / RSP_TASK_EVAL_NORM_MSEC;
+			fw_update_deadline_usec = esp_timer_get_time() + (RSP_MAX_FW_UPD_REQ_WAIT_MSEC * 1000LL);
 			fw_update_state = FW_UPD_REQUEST;
 			
 			ESP_LOGI(TAG, "Request update to v%s : %d bytes", fw_update_version, fw_req_length);
@@ -450,7 +529,7 @@ static void handle_notifications()
 							// Request the next segment
 							fw_req_attempt_num = 0;
 							send_get_fw();
-							fw_update_wait_timer = RSP_MAX_FW_UPD_GET_WAIT_MSEC / RSP_TASK_EVAL_NORM_MSEC;
+							fw_update_deadline_usec = esp_timer_get_time() + (RSP_MAX_FW_UPD_GET_WAIT_MSEC * 1000LL);
 							ESP_LOGI(TAG, "Request fw chunk @ %d", fw_cur_loc);
 						}
 					} else {
@@ -477,7 +556,7 @@ static void handle_notifications()
 					fw_cur_loc = 0;
 					fw_req_attempt_num = 0;
 					send_get_fw();
-					fw_update_wait_timer = RSP_MAX_FW_UPD_GET_WAIT_MSEC / RSP_TASK_EVAL_NORM_MSEC;
+					fw_update_deadline_usec = esp_timer_get_time() + (RSP_MAX_FW_UPD_GET_WAIT_MSEC * 1000LL);
 					fw_update_state = FW_UPD_PROCESS;
 					
 					ESP_LOGI(TAG, "Start update");
@@ -547,10 +626,6 @@ static int process_image(int n)
  */
 static void send_response(char* rsp, int rsp_length, bool ser_mode)
 {
-	int byte_offset;
-	int err;
-	int len;
-	int sock;
 #ifdef LOG_SEND_TIMESTAMP
 	int64_t tb, te;
 	
@@ -564,20 +639,9 @@ static void send_response(char* rsp, int rsp_length, bool ser_mode)
 #endif
 		sif_send(rsp, rsp_length);
 	} else {
-		sock = net_cmd_get_socket();
-		
-		// Write our response to the socket
-    	byte_offset = 0;
-		while (byte_offset < rsp_length) {
-			len = rsp_length - byte_offset;
-			if (len > RSP_MAX_TX_PKT_LEN) len = RSP_MAX_TX_PKT_LEN;
-			err = send(sock, rsp + byte_offset, len, 0);
-			if (err < 0) {
-				ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
-				break;
-			}
-			byte_offset += err;
-		}
+		// Dispatch to whichever transport currently holds the session - the legacy
+		// TCP socket used by the desktop/mobile apps, or a browser WebSocket
+		(void) client_if_send(rsp, rsp_length);
 	}
 	
 #ifdef LOG_SEND_TIMESTAMP
@@ -759,4 +823,57 @@ static void send_get_fw()
 	}
 	
 	xSemaphoreGive(sys_cmd_response_buffer.mutex);
+}
+
+
+/**
+ * Build a raw binary frame for the browser client.  Layout, all little-endian
+ * (native for both the ESP32 and every browser this meets):
+ *
+ *   offset 0   'T' 'C' 'A' 'M'      magic
+ *   offset 4   u8  version (1)
+ *   offset 5   u8  flags: bit 0 = telemetry present
+ *   offset 6   u16 telemetry length in bytes
+ *   offset 8   u32 radiometric length in bytes
+ *   offset 12  telemetry words (starts on an even offset; 12 + the even
+ *              telemetry length keeps the radiometric data aligned too, so the
+ *              browser can view both directly as Uint16Array without a copy)
+ *   ...        radiometric words
+ *
+ * Compared to the json path this drops the ~37% base64 expansion, the per-frame
+ * base64 encode on this core and decode in the browser, and the per-frame cJSON
+ * allocation churn.  The legacy TCP protocol is untouched - this format only
+ * travels over the WebSocket, whose client ships inside the same firmware image.
+ */
+static int build_binary_image(int n)
+{
+	int len;
+	uint8_t* p = (uint8_t*) sys_image_rsp_buffer.bufferP;
+	uint16_t tlen;
+	uint32_t rlen = LEP_NUM_PIXELS * 2;
+
+	xSemaphoreTake(rsp_lep_buffer[n].lep_mutex, portMAX_DELAY);
+
+	tlen = rsp_lep_buffer[n].telem_valid ? (LEP_TEL_WORDS * 2) : 0;
+
+	p[0] = 'T'; p[1] = 'C'; p[2] = 'A'; p[3] = 'M';
+	p[4] = 1;
+	p[5] = (tlen != 0) ? 0x01 : 0x00;
+	p[6] = (uint8_t) (tlen & 0xFF);
+	p[7] = (uint8_t) (tlen >> 8);
+	p[8]  = (uint8_t) (rlen & 0xFF);
+	p[9]  = (uint8_t) ((rlen >> 8) & 0xFF);
+	p[10] = (uint8_t) ((rlen >> 16) & 0xFF);
+	p[11] = (uint8_t) ((rlen >> 24) & 0xFF);
+
+	if (tlen != 0) {
+		memcpy(p + 12, rsp_lep_buffer[n].lep_telemP, tlen);
+	}
+	memcpy(p + 12 + tlen, rsp_lep_buffer[n].lep_bufferP, rlen);
+
+	xSemaphoreGive(rsp_lep_buffer[n].lep_mutex);
+
+	len = 12 + tlen + rlen;
+	sys_image_rsp_buffer.length = len;
+	return len;
 }

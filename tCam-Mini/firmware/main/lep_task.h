@@ -41,6 +41,21 @@
 // Reset fail delay before attempting a re-init (seconds)
 #define LEP_RESET_FAIL_RETRY_SECS 60
 
+// Maximum time to wait (blocked on the vsync interrupt) for vsync to assert
+// (uSec).  In normal operation vsync arrives roughly every 10 mSec, so this is a
+// hundred frame periods.
+//
+// This only has to catch a vsync line that is not toggling at all - an unseated
+// sensor, a broken trace, a Lepton left in the wrong GPIO mode - so it is set
+// generously rather than tightly.  A running FFC stalls the video pipeline for a
+// long time (see the resynchronization comment in lep_task.c), and faulting the
+// camera during a routine shutter event would be far worse than taking an extra
+// second to notice genuinely dead hardware.
+#define LEP_VSYNC_TIMEOUT_USEC 1000000
+
+// Consecutive vsync timeouts before reporting a fault
+#define LEP_VSYNC_TIMEOUT_FAULT_LIMIT 4
+
 
 
 //

@@ -24,12 +24,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "ble_beacon.h"
+#include "client_if.h"
 #include "net_cmd_task.h"
 #include "sif_cmd_task.h"
 #include "ctrl_task.h"
+#include "log_ring.h"
 #include "lep_task.h"
 #include "mon_task.h"
 #include "rsp_task.h"
+#include "web_cmd.h"
+#include "web_task.h"
 #include "system_config.h"
 #include "sys_utilities.h"
 
@@ -41,12 +46,15 @@ void app_main(void)
 {
 	int brd_type;
 	int if_mode;
-	
+
+    // Capture the log into a ring the web UI can show, before anything logs
+    log_ring_init();
+
     ESP_LOGI(TAG, "tCamMini starting");
     
     // Start the control task to light the red light immediately
     // and to determine what kind of interface we will be using
-    xTaskCreatePinnedToCore(&ctrl_task, "ctrl_task", 2176, NULL, 1, &task_handle_ctrl, 0);
+    xTaskCreatePinnedToCore(&ctrl_task, "ctrl_task", 2560, NULL, 1, &task_handle_ctrl, 0);
     
     // Allow task to start and determine operating mode
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -67,7 +75,7 @@ void app_main(void)
     }
     
     // Pre-allocate big buffers
-    if (!system_buffer_init()) {
+    if (!system_buffer_init(if_mode)) {
     	ESP_LOGE(TAG, "Memory allocate failed");
     	ctrl_set_fault_type(CTRL_FAULT_MEM_INIT);
     	while (1) {vTaskDelay(pdMS_TO_TICKS(100));}
@@ -84,12 +92,26 @@ void app_main(void)
     //  Core 1 : APP - lepton task
     if (if_mode == CTRL_IF_MODE_SIF) {
     	xTaskCreatePinnedToCore(&sif_cmd_task, "sif_cmd_task",  3072, NULL, 1, &task_handle_cmd,  0);
-    	xTaskCreatePinnedToCore(&rsp_task, "rsp_task",  2816, NULL, 19, &task_handle_rsp,  0);
-    	xTaskCreatePinnedToCore(&lep_task, "lep_task",  2304, NULL, 18, &task_handle_lep,  1);
+    	xTaskCreatePinnedToCore(&rsp_task, "rsp_task",  3328, NULL, 19, &task_handle_rsp,  0);
+    	xTaskCreatePinnedToCore(&lep_task, "lep_task",  3072, NULL, 18, &task_handle_lep,  1);
     } else {
+    	// Arbitrates between the legacy TCP client and a browser on the web server.
+    	// Both must be initialised before rsp_task starts, since it begins polling
+    	// the client state immediately.
+    	client_if_init();
+    	web_cmd_init();
+
     	xTaskCreatePinnedToCore(&net_cmd_task, "net_cmd_task",  3072, NULL, 1, &task_handle_cmd,  0);
-    	xTaskCreatePinnedToCore(&rsp_task, "rsp_task",  2816, NULL, 19, &task_handle_rsp,  0);
-    	xTaskCreatePinnedToCore(&lep_task, "lep_task",  2304, NULL, 19, &task_handle_lep,  1);
+    	xTaskCreatePinnedToCore(&rsp_task, "rsp_task",  3328, NULL, 19, &task_handle_rsp,  0);
+    	xTaskCreatePinnedToCore(&lep_task, "lep_task",  3072, NULL, 19, &task_handle_lep,  1);
+
+    	// Serves the on-camera UI.  Runs at a low priority so that neither the
+    	// lepton VoSPI transfer nor the response path can be starved by a browser.
+    	xTaskCreatePinnedToCore(&web_task, "web_task",  4096, NULL, 1, &task_handle_web,  0);
+
+    	// BLE beacon so the hosted finder page can ask the camera for its
+    	// current address.  Failure is logged inside; the camera runs without it.
+    	ble_beacon_init();
     }
 
 #ifdef INCLUDE_SYS_MON

@@ -29,6 +29,7 @@
  */
 #include "ps_utilities.h"
 #include "ctrl_task.h"
+#include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -115,11 +116,21 @@ static const char* TAG = "ps_utilities";
 static const char* lep_info_key = "lep_state";
 static const char* wifi_info_key = "wifi_info";
 static const char* eth_info_key = "eth_info";
+static const char* saved_nets_key = "sta_nets";
+
+// Saved-networks blob: a version byte ahead of the table so the layout can
+// change later without a size-guessing migration like the old ps_old_net_info_t
+#define PS_SAVED_NETS_VERSION 1
+typedef struct {
+	uint8_t version;
+	ps_saved_net_t nets[PS_NUM_SAVED_NETS];
+} ps_saved_nets_blob_t;
 
 // Local copies
 static ps_lep_state_t ps_lep_state;
 static ps_net_info_t ps_wifi_info;
 static ps_net_info_t ps_eth_info;
+static ps_saved_nets_blob_t ps_saved_nets;
 
 
 // NVS namespace handle
@@ -143,6 +154,8 @@ static bool ps_read_lep_info();
 static bool ps_write_net_info(int iface);
 static bool ps_read_net_info(int iface);
 static bool ps_read_old_net_info(int iface);
+static bool ps_write_saved_nets();
+static void ps_load_saved_nets();
 static void ps_store_string(char* dst, char* src, uint8_t max_len);
 
 
@@ -250,7 +263,22 @@ bool ps_init(int brd, int iface)
 	} else {
 		ESP_LOGI(TAG, "Reading NVS WiFi info");
 		success &= ps_read_net_info(CTRL_IF_MODE_WIFI);
+
+		// Migrate the AP address away from the old hard-coded default.  Before the
+		// AP address was actually applied to the interface (see enable_esp_wifi_ap)
+		// this stored value was inert and always 192.168.4.1, so rewriting exactly
+		// that value cannot clobber a deliberate user choice.
+		if ((ps_wifi_info.ap_ip_addr[3] == 192) && (ps_wifi_info.ap_ip_addr[2] == 168) &&
+		    (ps_wifi_info.ap_ip_addr[1] == 4)   && (ps_wifi_info.ap_ip_addr[0] == 1)) {
+			ESP_LOGI(TAG, "Migrating AP address to 192.168.58.1");
+			ps_wifi_info.ap_ip_addr[1] = 58;
+			success &= ps_write_net_info(CTRL_IF_MODE_WIFI);
+		}
 	}
+
+	// Saved roaming networks (depends on ps_wifi_info being loaded: a camera
+	// upgraded from single-network firmware seeds the table from its old config)
+	ps_load_saved_nets();
 	
 	// Ethernet Info only loaded on the ethernet board type
 	if (brd_type == CTRL_BRD_ETH_TYPE) {
@@ -309,6 +337,80 @@ void ps_set_lep_state(const json_config_t* state)
 			ESP_LOGE(TAG, "Failed to save lep data to NVS Storage");
 		}
 	}
+}
+
+
+void ps_get_saved_nets(ps_saved_net_t* list)
+{
+	memcpy(list, ps_saved_nets.nets, sizeof(ps_saved_nets.nets));
+}
+
+
+void ps_set_saved_nets(const ps_saved_net_t* list)
+{
+	memcpy(ps_saved_nets.nets, list, sizeof(ps_saved_nets.nets));
+	(void) ps_write_saved_nets();
+}
+
+
+bool ps_upsert_saved_net(const ps_saved_net_t* net)
+{
+	int i;
+	int slot = -1;
+
+	if (net->ssid[0] == 0) return false;
+
+	// Same ssid updates in place; otherwise first free slot
+	for (i = 0; i < PS_NUM_SAVED_NETS; i++) {
+		if (strncmp(ps_saved_nets.nets[i].ssid, net->ssid, PS_SSID_MAX_LEN) == 0) {
+			slot = i;
+			break;
+		}
+		if ((slot == -1) && (ps_saved_nets.nets[i].ssid[0] == 0)) {
+			slot = i;
+		}
+	}
+
+	// Table full of other networks: the last slot is evicted.  The user is
+	// standing in front of the network they are adding; whatever falls off the
+	// end is by definition the one they touched least recently.
+	if (slot == -1) {
+		slot = PS_NUM_SAVED_NETS - 1;
+		ESP_LOGI(TAG, "Saved network table full - replacing '%s'",
+		         ps_saved_nets.nets[slot].ssid);
+	}
+
+	ps_saved_nets.nets[slot] = *net;
+	ps_saved_nets.nets[slot].ssid[PS_SSID_MAX_LEN] = 0;
+	ps_saved_nets.nets[slot].pw[PS_PW_MAX_LEN] = 0;
+	ESP_LOGI(TAG, "Saved network '%s' (slot %d)", net->ssid, slot);
+	return ps_write_saved_nets();
+}
+
+
+bool ps_forget_saved_net(const char* ssid)
+{
+	int i;
+	bool found = false;
+
+	for (i = 0; i < PS_NUM_SAVED_NETS; i++) {
+		if (strncmp(ps_saved_nets.nets[i].ssid, ssid, PS_SSID_MAX_LEN) == 0) {
+			// Shift the rest up so the free slots stay at the end
+			for (; i < PS_NUM_SAVED_NETS - 1; i++) {
+				ps_saved_nets.nets[i] = ps_saved_nets.nets[i + 1];
+			}
+			memset(&ps_saved_nets.nets[PS_NUM_SAVED_NETS - 1], 0,
+			       sizeof(ps_saved_net_t));
+			found = true;
+			break;
+		}
+	}
+
+	if (found) {
+		ESP_LOGI(TAG, "Forgot network '%s'", ssid);
+		(void) ps_write_saved_nets();
+	}
+	return found;
 }
 
 
@@ -478,9 +580,11 @@ static void ps_default_net_info(int iface)
 		local->flags |= NET_INFO_FLAG_CLIENT_MODE;
 	}
 	
+	// 192.168.58.x rather than the esp_netif default 192.168.4.x, which collides
+	// with the LAN subnet several popular consumer routers hand out
 	local->ap_ip_addr[3] = 192;
 	local->ap_ip_addr[2] = 168;
-	local->ap_ip_addr[1] = 4;
+	local->ap_ip_addr[1] = 58;
 	local->ap_ip_addr[0] = 1;
 	local->sta_ip_addr[3] = 192;
 	local->sta_ip_addr[2] = 168;
@@ -582,6 +686,67 @@ static bool ps_read_net_info(int iface)
 	}
 	
 	return true;
+}
+
+
+static bool ps_write_saved_nets()
+{
+	esp_err_t err;
+
+	ps_saved_nets.version = PS_SAVED_NETS_VERSION;
+	err = nvs_set_blob(ps_handle, saved_nets_key, &ps_saved_nets,
+	                   sizeof(ps_saved_nets));
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "Set saved nets blob failed with %d", err);
+		return false;
+	}
+
+	err = nvs_commit(ps_handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "Commit saved nets failed with %d", err);
+		return false;
+	}
+
+	return true;
+}
+
+
+static void ps_load_saved_nets()
+{
+	size_t required_size = sizeof(ps_saved_nets);
+	esp_err_t err;
+
+	memset(&ps_saved_nets, 0, sizeof(ps_saved_nets));
+
+	err = nvs_get_blob(ps_handle, saved_nets_key, &ps_saved_nets, &required_size);
+	if ((err == ESP_OK) && (required_size == sizeof(ps_saved_nets)) &&
+	    (ps_saved_nets.version == PS_SAVED_NETS_VERSION)) {
+		return;
+	}
+
+	// No table (or an unreadable one).  Seed it from the single-network
+	// configuration this firmware used to have, so an upgraded camera keeps
+	// joining the network it already knows without being reconfigured.
+	memset(&ps_saved_nets, 0, sizeof(ps_saved_nets));
+	if (ps_wifi_info.sta_ssid[0] != 0) {
+		int i;
+
+		memcpy(ps_saved_nets.nets[0].ssid, ps_wifi_info.sta_ssid, PS_SSID_MAX_LEN);
+		ps_saved_nets.nets[0].ssid[PS_SSID_MAX_LEN] = 0;
+		memcpy(ps_saved_nets.nets[0].pw, ps_wifi_info.sta_pw, PS_PW_MAX_LEN);
+		ps_saved_nets.nets[0].pw[PS_PW_MAX_LEN] = 0;
+		if ((ps_wifi_info.flags & NET_INFO_FLAG_CL_STATIC_IP) != 0) {
+			ps_saved_nets.nets[0].flags |= PS_SAVED_NET_FLAG_STATIC_IP;
+		}
+		for (i = 0; i < 4; i++) {
+			ps_saved_nets.nets[0].ip_addr[i] = ps_wifi_info.sta_ip_addr[i];
+			ps_saved_nets.nets[0].netmask[i] = ps_wifi_info.sta_netmask[i];
+		}
+		ESP_LOGI(TAG, "Seeded saved networks from '%s'", ps_wifi_info.sta_ssid);
+	} else {
+		ESP_LOGI(TAG, "Initializing empty saved network table");
+	}
+	(void) ps_write_saved_nets();
 }
 
 

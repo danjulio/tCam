@@ -91,6 +91,7 @@ extern TaskHandle_t task_handle_cmd;
 extern TaskHandle_t task_handle_ctrl;
 extern TaskHandle_t task_handle_lep;
 extern TaskHandle_t task_handle_rsp;
+extern TaskHandle_t task_handle_web;
 #ifdef INCLUDE_SYS_MON
 extern TaskHandle_t task_handle_mon;
 #endif
@@ -125,7 +126,7 @@ extern uint8_t fw_upd_segment[];                          // Loaded by cmd_utili
 //
 bool system_esp_io_init(int brd_type, int if_mode);
 bool system_peripheral_init(int brd_type, int if_mode);
-bool system_buffer_init();
+bool system_buffer_init(int if_mode);
 bool system_config_spi_slave(char* buf, int len);
 bool system_spi_slave_busy();
 bool system_spi_wait_done();

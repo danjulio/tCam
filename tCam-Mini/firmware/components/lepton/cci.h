@@ -70,6 +70,14 @@
 #define CCI_CMD_SYS_GET_TELEMETRY_LOCATION 0x021C
 #define CCI_CMD_SYS_SET_TELEMETRY_LOCATION 0x021D
 #define CCI_CMD_SYS_RUN_FFC 0x0242
+// Manual shutter position (FLIR SDK LEP_SYS_SHUTTER_POSITION):
+//   0 = idle (the Lepton's own FFC logic controls the shutter - normal running)
+//   1 = open (held open)  2 = closed (held closed)
+#define CCI_CMD_SYS_GET_SHUTTER_POS 0x0238
+#define CCI_CMD_SYS_SET_SHUTTER_POS 0x0239
+#define CCI_SHUTTER_POS_IDLE   0
+#define CCI_SHUTTER_POS_OPEN   1
+#define CCI_SHUTTER_POS_CLOSED 2
 #define CCI_CMD_SYS_GET_GAIN_MODE 0x0248
 #define CCI_CMD_SYS_SET_GAIN_MODE 0x0249
 
@@ -186,6 +194,7 @@ bool cci_command_success(uint16_t* status);
 // Module: SYS
 uint32_t cci_run_ping();
 void cci_run_ffc();
+void cci_set_shutter_position(uint32_t pos);
 uint32_t cci_get_uptime();
 uint32_t cci_get_aux_temp();
 uint32_t cci_get_fpa_temp();
