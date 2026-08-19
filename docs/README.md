@@ -1,9 +1,13 @@
 # tCam Finder (hosted page)
 
+**Live: <https://mcgeaverbeaver.github.io/tCam/>** · [▶ demo video](https://youtube.com/shorts/R_bb3d-skMs)
+
 `index.html` here is the **tCam Finder** — a single static page that locates a
 tCam-Mini over Bluetooth LE and opens its web interface, wherever the camera
 roamed.  A camera's IP address changes between networks; this page's address
 never does, so this is the thing to bookmark or add to a home screen.
+
+![tCam Finder](finder.png)
 
 How it works: the 6.15+ firmware advertises a small Bluetooth LE service whose
 one characteristic returns the camera's name and the IP address it holds right
@@ -14,7 +18,7 @@ camera list only in the visitor's own browser.
 
 ## Hosting it
 
-Enable GitHub Pages for this repository once:
+Enable GitHub Pages for the repository once (already done for this one):
 
 **Settings → Pages → Source: "Deploy from a branch" → Branch: `main`, folder
 `/docs` → Save.**

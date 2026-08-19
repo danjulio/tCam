@@ -17,9 +17,38 @@ This fork modernizes the **tCam-Mini firmware** into a fully self-contained inst
 
 More interface detail and screenshots: [WEB_UI.md](tCam-Mini/firmware/WEB_UI.md)
 
+### Find the camera after it moves — tCam Finder
+
+A saved browser shortcut freezes an IP address, but a camera that roams between houses
+gets a different one at each location, so the shortcut opens a dead address. **tCam
+Finder** fixes that with a page whose own address never changes: it asks the camera —
+over Bluetooth LE — where it is *right now*, then opens its interface.
+
+**➡️ [Open tCam Finder](https://mcgeaverbeaver.github.io/tCam/)** — save *this* page to
+your home screen instead of the camera's IP.
+
+| | |
+|---|---|
+| <img src="docs/finder.png" width="300" alt="tCam Finder"> | <a href="https://youtube.com/shorts/R_bb3d-skMs"><img src="https://img.youtube.com/vi/R_bb3d-skMs/hqdefault.jpg" width="300" alt="Watch the tCam Finder demo"></a> |
+| *Find by Bluetooth, plus every camera it has seen before.* | *[▶ Watch the demo](https://youtube.com/shorts/R_bb3d-skMs)* |
+
+Bluetooth is used for **discovery only** — one read of the camera's name, current address
+and mode. Video then streams over WiFi at full speed through the normal web interface.
+There is no cloud service, no account and no backend: the page is static, all camera
+traffic stays on your LAN, and the remembered-camera list lives only in your own browser.
+Because the finder's origin is stable, that list survives the address changes that break
+a camera-hosted shortcut.
+
+* **Android / Windows / any Chrome or Edge** — *Find my camera*, pick it, done
+* **iPhone / iPad / Mac** — no Web Bluetooth; the page offers the `.local` name instead, which mDNS keeps current
+* **Camera in hotspot mode** — the page says so and points at `192.168.58.1`
+
+Hosting is just GitHub Pages from [`docs/`](docs/) — fork the repo, enable Pages, and the
+finder is yours. Details and the BLE contract: [docs/README.md](docs/README.md).
+
 ### What changed vs. the original firmware
 
-| | Original (FW 3.x) | This fork (FW 6.14) |
+| | Original (FW 3.x) | This fork (FW 6.15) |
 |---|---|---|
 | Viewer | Desktop/mobile app required | Any browser — nothing to install; up to 4 viewers at once |
 | Streaming | json over TCP :5001 | Same, **plus** compact binary WebSocket to the browser |
@@ -43,6 +72,6 @@ Also fixed along the way: command-parser buffer overruns, interrupt-driven Lepto
 ### tCam-Mini
 tCam-Mini is a smaller camera designed for streaming and remote access.  It supports a Wifi or hardwired interface.  It can be built using development boards or a tested unit can be purchased from Group Gets [with built in antenna](https://store.groupgets.com/products/tcam-mini-rev4-wireless-streaming-thermal-camera-board) or [with an external antenna](https://store.groupgets.com/products/tcam-mini-rev4-external-antenna-wireless-streaming-thermal-camera-board).
 
-![tCam-Mini](pictures/tcam_mini.png)
+![tCam-Mini](tCam-Mini/pictures/tcam_mini_pcb_r4.png)
 
-(Photo Credit: Matthew Navarro)
+(image courtesy of Group Gets)

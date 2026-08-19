@@ -49,8 +49,6 @@ Three simple enclosure designs in included in this repository, One designed to b
 
 Github user [zharijs](https://github.com/zharijs) created a set of fantastic 3D printed enclosure designs, with and without GoPro™ mounts, that you can find in his [repo](https://github.com/zharijs/Enclosures/tree/main/tCam%20enclosure). He helpfully includes a BOM for extra hardware you'll need too.  Honestly, his enclosures are better than mine!
 
-![Zharijs Enclosure Body](pictures/zharijs_gopro_body.png)
-
 ### Operation
 
 With the 6.x firmware, tCam-Mini is both a self-contained instrument (browse to it, see [firmware/WEB_UI.md](firmware/WEB_UI.md)) and a command-based device for software running elsewhere.  External software communicates one of two ways depending on the polarity of the Mode input at boot:
@@ -101,7 +99,12 @@ As a client, the camera remembers up to **five networks** and at power-on joins 
 
 Up to **four browsers may view and control the camera at once**.  The json socket interface on port 5001 remains single-client, and holds the camera exclusively while a desktop-app session is open.
 
-**Finding a camera whose address changed** (FW 6.15+): the camera advertises a small Bluetooth LE beacon carrying its current address, and the hosted **tCam Finder** page ([docs/ at the repository root](../docs/)) reads it over Web Bluetooth and opens the camera's interface — a browser shortcut that keeps working across locations, with no cloud backend.  Apple devices (no Web Bluetooth) use the `.local` name instead, which mDNS keeps current.
+**Finding a camera whose address changed** (FW 6.15+): a saved browser shortcut freezes an IP address, but a roaming camera's address differs at each location.  The camera therefore advertises a small Bluetooth LE beacon carrying its current name, address and mode, and the hosted **[tCam Finder](https://mcgeaverbeaver.github.io/tCam/)** page ([source in docs/](../docs/)) reads it over Web Bluetooth and opens the camera's interface — a shortcut that keeps working across locations, with no cloud backend.  Bluetooth carries discovery only; video still streams over WiFi.  Apple devices (no Web Bluetooth) use the `.local` name instead, which mDNS keeps current.
+
+| | |
+| --- | --- |
+| <img src="../docs/finder.png" width="290" alt="tCam Finder"> | <a href="https://youtube.com/shorts/R_bb3d-skMs"><img src="https://img.youtube.com/vi/R_bb3d-skMs/hqdefault.jpg" width="290" alt="tCam Finder demo"></a> |
+| *The finder page.* | *[▶ Watch the demo](https://youtube.com/shorts/R_bb3d-skMs)* |
 
 #### WiFi Reset Button
 Pressing and holding the WiFi Reset Button for more than five seconds resets the WiFi interface back to the default AP (hotspot) mode.  The status indicator blinks fast yellow while the reset occurs.
