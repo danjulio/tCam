@@ -94,8 +94,8 @@ static uint16_t tbl_file_w;
 static int prev_tbl_dir_row;
 static int prev_tbl_file_row;
 static int confirmation_action;           // Set to indicate what action to perform on confirmation
-static char dir_name[FILE_NAME_LEN];      // Current directory name
-static char file_name[FILE_NAME_LEN];     // Current directory name
+static char dir_name[DIR_NAME_LEN];       // Current directory name
+static char file_name[FILE_NAME_LEN];     // Current file name
 
 
 

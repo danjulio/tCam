@@ -119,6 +119,7 @@ static void dump_filesystem_info();
 
 // References to internal SDMMC driver functions used to probe the SD Card for
 // insertion and removal events
+// THERE MAY NOT BE NECESSARY ??? OR THEIR HEADERS
 esp_err_t sdmmc_send_cmd_send_scr(sdmmc_card_t* card, sdmmc_scr_t *out_scr);
 esp_err_t sdmmc_fix_host_flags(sdmmc_card_t* card);
 esp_err_t sdmmc_io_reset(sdmmc_card_t* card);

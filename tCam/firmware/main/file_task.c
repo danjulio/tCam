@@ -623,6 +623,7 @@ static void catalog_filesystem()
 	} else {
 		ESP_LOGE(TAG, "Could not index filesystem");
 		rsp_set_cam_info_msg(RSP_INFO_INT_ERROR, "Could not index filesystem");
+		// ??? Do I need to send a notification here
 	}
 }
 
@@ -755,7 +756,6 @@ static bool format_card(int src)
 	if (file_format_card()) {
 		ESP_LOGI(TAG, "Format SD Card");
 		file_delete_filesystem_info();
-		return true;
 	} else {
 		ESP_LOGE(TAG, "Format SD Card failed");
 		return false;

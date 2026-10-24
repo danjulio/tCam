@@ -448,6 +448,13 @@ static bool init_esp_wifi()
 		return false;
 	}
 	
+	// Disable power savings mode
+	ret = esp_wifi_set_ps(WIFI_PS_NONE);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Could not disable power-saving mode - %x", ret);
+		return false;
+	}
+	
 	return true;
 }
 

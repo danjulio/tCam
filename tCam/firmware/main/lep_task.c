@@ -140,7 +140,7 @@ void lep_task()
 	
 	while (true) {
 		// See what tasks want images (clear them upon reading)
-		if (xTaskNotifyWait(0x00, 0xFFFFFFFF, &notification_value, 0)) {;
+		if (xTaskNotifyWait(0x00, 0xFFFFFFFF, &notification_value, 0)) {
 			if (Notification(notification_value, LEP_NOTIFY_EN_RSP_FRAME_MASK)) {
 				cmd_image_requested = true;
 			}
